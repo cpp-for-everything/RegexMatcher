@@ -68,6 +68,7 @@
         "list": "cpp",
         "unordered_map": "cpp",
         "xhash": "cpp",
-        "string": "cpp"
+        "string": "cpp",
+        "set": "cpp"
     }
 }
