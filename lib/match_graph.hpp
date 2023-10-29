@@ -69,10 +69,26 @@ namespace Regex {
     class Node {
     private:
         /**
+         * @brief Contains the characters and additional attributes for wildcard symbols and Null symbols
+         * 
+         */
+        struct symbol {
+            char ch;
+            bool wildcard;
+            bool none;
+            static const symbol Any;
+            static const symbol None;
+
+            symbol(char s) : ch(s), wildcard(false), none(false) {}
+        };
+        const symbol symbol::Any{'\0', true, false};
+        const symbol symbol::None{'\0', false, true};
+
+        /**
          * @brief All directly connected nodes
          * 
          */
-        std::map<char, EdgeInfo<UniqueMatchDataPtr>> children;
+        std::map<symbol, EdgeInfo<UniqueMatchDataPtr>> children;
     public:
         /**
          * @brief This function initialize a node with a substring of a parameter str within the range of [start, end)
@@ -113,10 +129,19 @@ namespace Regex {
                         leaf->add_child(child.first, child.second.to, child.second.paths[regex].limits, regex);
                     }
                 }
+                else if (*it == '*') { // repeat last node 0+ times
+                    std::pair<Node*, Node*> sub_node = nodes.back();
+                    Node* const root = sub_node->first;
+                    Node* const leaf = sub_node->second;
+                    for (auto child : root->children) {
+                        leaf->add_child(child.first, child.second.to, child.second.paths[regex].limits, regex);
+                    }
+                }
                 else if (*it == '\\') {
                     it ++;
                     Node* newChild = new Node();
-                    newNode->add_child(*it, new Node());
+                    newNode->add_child(*it, new Node(), Limits::common_edge, regex);
+                    nodes.push_back(newNode);
                 }
             }
         }
@@ -125,7 +150,6 @@ namespace Regex {
         Node* processSet(UniqueMatchDataPtr regex, ConstIterator& it) {
             if (*it != '[') // not called at the beginning of a set
                 return nullptr;
-            Node* leaf = new Node();
             ConstIterator prev;
             while(*it != ']') {
                 if (*it == '\\') { // escape symbol is always followed by a reglar character
@@ -134,12 +158,13 @@ namespace Regex {
                 else if (*it == '-') {
                     it ++;
                     for (char ch = ((*prev) + 1) ; ch <= *it ; ch ++) {
-                        top_level->add_child(ch, leaf, regex, Limits::common_edge);
+                        this->get_or_create(ch, regex, std::nullopt, nullptr);
                     }
                 }
                 prev = it;
                 it ++;
             }
+            Node* leaf = new Node();
             return leaf;
         }
 
@@ -153,6 +178,22 @@ namespace Regex {
                 throw "Merge not implemented";
             }
             return this;
+        }
+
+        Node* get_or_create(symbol ch, UniqueMatchDataPtr regex_ptr, std::optional<Limits> limits, Node* to = nullptr) {
+            if (children.find(ch) != children.end()) {
+                children[ch].paths.insert({regex_ptr, limits});
+                return children[ch].to;
+            }
+            else if (children.find(symbol::None) != children.end() && children[symbol::None].children.find(ch) != children[symbol::None].children.end()) {
+                children[symbol::None].children[ch].paths.insert({regex_ptr, limits});
+                return children[ch].to;
+            }
+            else {
+                children[ch].to = ((to == nullptr) ? (new Node()) : to);
+                children[ch].paths.insert({regex_ptr, limits});
+                return children[ch].to;
+            }
         }
     };
 }
