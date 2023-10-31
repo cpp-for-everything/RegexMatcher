@@ -1,3 +1,6 @@
+#ifndef LIMITS_H
+#define LIMITS_H
+
 #include <optional>
 
 struct Limits {
@@ -24,7 +27,4 @@ struct Limits {
     static const Limits zero_or_more;
 };
 
-const Limits common_edge = Limits();
-const Limits zero_or_once = Limits(0, 1);
-const Limits once_or_more = Limits(1, std::nullopt);
-const Limits zero_or_more = Limits(0, std::nullopt);
+#endif

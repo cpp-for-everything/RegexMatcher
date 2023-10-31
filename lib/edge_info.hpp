@@ -1,5 +1,10 @@
-#include <optional>
 #include "limits.hpp"
+
+#ifndef EDGE_INFO_H
+#define EDGE_INFO_H
+
+#include <map>
+#include <optional>
 
 /**
  * @brief Class containing the list of regexes using the given edge
@@ -11,3 +16,5 @@ struct EdgeInfo {
     std::map<T, std::optional<Limits>> paths; // each path may have different requirements for how many times should the edge be repeated.
     Node* to;
 };
+
+#endif
