@@ -1,18 +1,19 @@
-#include "../lib/match_graph.hpp"
+#include "../lib/node.hpp"
 #include <iostream>
 
 int main(int argc, char** argv) {
-
-    try {
-        Regex::Node<int> root;
-        std::string regex = "a([a-c]+)b";
-        root.process(0, regex.cbegin(), regex.cend());
-    }
-    catch(const char* str) {
-        std::cout << str << std::endl;
-    }
-    catch(std::exception& e) {
-        std::cout << e.what() << std::endl;
+    {
+        Node root = Node();
+        EdgeInfo_t edge;
+        edge.paths.emplace(1, Limits::common_edge);
+        edge.to = new Node('a');
+        std::cout << edge.to->to_string() << "(" << edge.to << ")" << "\n";
+        root.neighbours.emplace('a', edge);
+        std::string regex = "a[a-c]";
+        auto x = Node::processSet({&root}, 1, regex.begin() + 1);
+        for (auto a : x) {
+            std::cout << a->to_string() << "(" << a << ")" << " ";
+        }
     }
     return 0;
 }
