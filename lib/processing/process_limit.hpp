@@ -7,23 +7,24 @@
  * @param parents  
  * @param regex 
  * @param it 
- * @return std::vector<Node*> 
+ * @return 
  */
 template<typename ConstIterator>
-static std::vector<Node*> processSet(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it) {
-    if (*it != '[') // not called at the beginning of a set
+static void processLimit(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it) {
+    if (*it != '{') // not called at the beginning of a set
         return {};
     else it++;
     std::vector<Node*> leafs;
     ConstIterator prev;
     bool takeTheNextSymbolLitterally = false;
-    while(*it != ']') {
+
+    while(*it != '}') {
         if (!takeTheNextSymbolLitterally) {
-            if (*it == '\\') { // escape symbol is always followed by a reglar character
+            if ('0' <= *it && *it <= '9') { // escape symbol is always followed by a reglar character
                 it ++; // so it is included no matter what
-                takeTheNextSymbolLitterally = true;
+
             }
-            else if (*it == '-') {
+            else if (*it == ',') {
                 it ++;
                 for (char ch = ((*prev) + 1) ; ch <= *it ; ch ++) {
                     Node* nextLeaf = nullptr;
