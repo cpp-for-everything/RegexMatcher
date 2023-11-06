@@ -20,27 +20,51 @@ std::vector<Node*> process(std::vector<Node*> parents, UniqueMatchDataPtr regex,
             break;
         if (*it == '[') { // start of a set
             const auto parents = nodeLayers.back();
-            const std::vector<Node*> newNodes = Node::processSet(parents, regex, it);
+            const std::vector<Node*> newNodes = processSet(parents, regex, it);
             for (auto parent : parents) {
                 for (auto newNode : newNodes) {
-                    parent.connect_with(newNode, regex);
+                    parent->connect_with(newNode, regex);
                 }
             }
             nodeLayers.push_back(newNodes);
         } 
         else if (*it == '(') { // start of a regex in brackets
             it ++;
-            const std::vector<Node*> newLayer = process(nodeLayers.back(), regex, it, end, true); // leaves it at the closing bracket
-            nodes.push_back(subregex);
+            std::vector<Node*> newLayersLeafs;
+            const std::vector<Node*> newLayer = process(nodeLayers.back(), regex, it, end, true, newLayersLeafs); // leaves it at the closing bracket
+            nodeLayers.push_back(newLayer);
+            nodeLayers.push_back(newLayersLeafs);
+        }
+        else if (*it == '|') {
+            
+        }
+        else if (*it == '{') {
+            
         }
         else { // normal character
-            if (*it == '\\') { // skip escapre symbol
+            if (*it == '\\') { // skip escape symbol
                 it ++;
             }
+            Node* nextNode = nullptr;
+            for (auto parent : nodeLayers.back()) {
+                if (parent->neighbours.find(*it) != parent->neighbours.end()) {
+                    nextNode = parent->neighbours[*it].to;
+                    break;
+                }
+            }
+            if (nextNode == nullptr) {
+                nextNode = new Node(*it);
+            }
+            for (auto parent : nodeLayers.back()) {
+                parent->connect_with(nextNode, regex);
+            }
+            nodeLayers.push_back({nextNode});
         }
     }
-    if (nodeLayers.size() >= 2)
+    if (nodeLayers.size() >= 2) {
+        leafs = nodeLayers.back();
         return nodeLayers[1];
+    }
     else
         return {};
 }

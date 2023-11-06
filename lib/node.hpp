@@ -6,6 +6,8 @@
 
 #include <list>
 #include <string>
+#include <sstream>
+#include <iostream>
 #include <stack>
 #include <vector>
 #include <map>
@@ -78,9 +80,39 @@ public:
      * @return Node* the node correspondign to this symbol
      */
     Node* getChild(symbol ch);
+
+    /**
+     * @brief Adds a child node to the current one and marks the connection as part of a given regex match
+     * 
+     * @param child Existing node
+     * @param regex Regex data that is being used to indentify the regex that the edge is part of
+     */
+    void connect_with(Node* child, UniqueMatchDataPtr regex);
+
+    void print(size_t layer = 0) {
+        const std::string layer_str = (std::stringstream() << layer).str() + "_";
+        const std::string next_layer = (std::stringstream() << (layer + 1)).str() + "_";
+        std::map<Node*, std::string> nodes;
+        nodes.insert({this, layer_str + current_symbol.to_string()});
+        for (auto child : neighbours) {
+            if (nodes.find(child.second.to) != nodes.end()) {
+                std::cout << nodes[this] << " " << nodes[child.second.to] << std::endl;
+            }
+            else {
+                nodes.insert({child.second.to, next_layer + child.second.to->current_symbol.to_string()});
+                std::cout << nodes[this] << " " << nodes[child.second.to] << " " << child.second.paths.begin()->first;
+                for (auto it = std::next(child.second.paths.begin()) ; it != child.second.paths.end() ; it ++) {
+                    std::cout << "," << it->first;
+                }
+                std::cout << std::endl;
+                child.second.to->print(layer + 1);
+            }
+        }
+    }
 };
 
 #include "processing/process.hpp"
-#include "processing/process_set.hpp"    
+#include "processing/process_set.hpp"
+#include "processing/process_limit.hpp"
 
 #endif

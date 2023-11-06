@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.16.3)
 project(RegexMatcher)
 
 add_library(Node STATIC src/node.cpp 
-                        src/processing/process.cpp
                         src/symbol.cpp
                         src/limits.cpp
 )

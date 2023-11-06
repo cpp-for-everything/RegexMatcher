@@ -1,6 +1,8 @@
 #ifndef SYMBOL_H
 #define SYMBOL_H
 
+#include <string>
+
 /**
  * @brief Contains the characters and additional attributes for wildcard symbols and Null symbols
  * 
@@ -28,6 +30,12 @@ struct symbol {
             return wildcard < s.wildcard;
         }
         return (ch < s.ch);
+    }
+
+    inline std::string to_string() const {
+        if (wildcard) return "wildcard";
+        if (none) return "(empty)";
+        return std::string(1, ch);
     }
 };
 
