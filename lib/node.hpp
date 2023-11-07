@@ -20,6 +20,24 @@ class Node;
 using UniqueMatchDataPtr = int;
 using EdgeInfo_t = EdgeInfo<UniqueMatchDataPtr, Node>;
 
+class Node;
+
+class SubTree {
+private:
+    std::vector<Node*> roots;
+    std::vector<Node*> leafs;
+public:
+    SubTree(std::vector<Node*> a, std::vector<Node*> b) : roots(a), leafs(b) {}
+
+    const std::vector<Node*>& get_roots() const {
+        return roots;
+    }
+
+    const std::vector<Node*>& get_leafs() const {
+        return leafs;
+    }
+};
+
 class Node {
 public:
     /**
