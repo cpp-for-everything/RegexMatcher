@@ -13,14 +13,14 @@
  * @return std::vector<Node*> Returns a vector of pointers to the roots of the processed substring [start, end)
  */
 template<typename ConstIterator>
-std::vector<Node*> process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it, ConstIterator end, const bool inBrackets, std::vector<Node*>& leafs) {
-    std::vector<std::vector<Node*>> nodeLayers = {parents};
+SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it, ConstIterator end, const bool inBrackets) {
+    std::vector<SubTree> nodeLayers = {{parents, parents}};
     for ( ; it != end ; it ++) {
         if (*it == ')' && inBrackets)
             break;
         if (*it == '[') { // start of a set
             const auto parents = nodeLayers.back();
-            const std::vector<Node*> newNodes = processSet(parents, regex, it);
+            SubTree newNodes = processSet(parents, regex, it);
             for (auto parent : parents) {
                 for (auto newNode : newNodes) {
                     parent->connect_with(newNode, regex);
@@ -30,10 +30,8 @@ std::vector<Node*> process(std::vector<Node*> parents, UniqueMatchDataPtr regex,
         } 
         else if (*it == '(') { // start of a regex in brackets
             it ++;
-            std::vector<Node*> newLayersLeafs;
-            const std::vector<Node*> newLayer = process(nodeLayers.back(), regex, it, end, true, newLayersLeafs); // leaves it at the closing bracket
+            SubTree newLayer = process(nodeLayers.back(), regex, it, end, true); // leaves it at the closing bracket
             nodeLayers.push_back(newLayer);
-            nodeLayers.push_back(newLayersLeafs);
         }
         else if (*it == '|') {
             
