@@ -14,15 +14,16 @@
  */
 template<typename ConstIterator>
 SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it, ConstIterator end, const bool inBrackets) {
+    SubTree answer = {parents, {}};
     std::vector<SubTree> nodeLayers = {{parents, parents}};
     for ( ; it != end ; it ++) {
         if (*it == ')' && inBrackets)
             break;
         if (*it == '[') { // start of a set
             const auto parents = nodeLayers.back();
-            SubTree newNodes = processSet(parents, regex, it);
-            for (auto parent : parents) {
-                for (auto newNode : newNodes) {
+            SubTree newNodes = processSet(parents.get_leafs(), regex, it);
+            for (auto parent : parents.get_leafs()) {
+                for (auto newNode : newNodes.get_leafs()) {
                     parent->connect_with(newNode, regex);
                 }
             }
@@ -30,11 +31,12 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
         } 
         else if (*it == '(') { // start of a regex in brackets
             it ++;
-            SubTree newLayer = process(nodeLayers.back(), regex, it, end, true); // leaves it at the closing bracket
+            SubTree newLayer = process(nodeLayers.back().get_leafs(), regex, it, end, true); // leaves it at the closing bracket
             nodeLayers.push_back(newLayer);
         }
         else if (*it == '|') {
-            
+            answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(), nodeLayers.back().get_leafs().end());
+            nodeLayers.resize(1);
         }
         else if (*it == '{') {
             
@@ -44,7 +46,7 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
                 it ++;
             }
             Node* nextNode = nullptr;
-            for (auto parent : nodeLayers.back()) {
+            for (auto parent : nodeLayers.back().get_leafs()) {
                 if (parent->neighbours.find(*it) != parent->neighbours.end()) {
                     nextNode = parent->neighbours[*it].to;
                     break;
@@ -53,16 +55,12 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
             if (nextNode == nullptr) {
                 nextNode = new Node(*it);
             }
-            for (auto parent : nodeLayers.back()) {
+            for (auto parent : nodeLayers.back().get_leafs()) {
                 parent->connect_with(nextNode, regex);
             }
-            nodeLayers.push_back({nextNode});
+            nodeLayers.push_back({nodeLayers.back().get_leafs(), {nextNode}});
         }
     }
-    if (nodeLayers.size() >= 2) {
-        leafs = nodeLayers.back();
-        return nodeLayers[1];
-    }
-    else
-        return {};
+    answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(), nodeLayers.back().get_leafs().end());
+    return answer;
 }
