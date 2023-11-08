@@ -12,7 +12,6 @@ Node* Node::getChild(symbol ch) {
 }
 
 void Node::connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::list<Limits>::iterator> limit) {
-    std::cout << "limits: " << this->current_symbol.to_string() << child->current_symbol.to_string() << " " << limit.has_value() << " " << Limits::to_string(limit) << std::endl;
     if (neighbours.find(child->current_symbol) != neighbours.end()) {
         neighbours[child->current_symbol].paths.emplace(regex, limit);
         return;
