@@ -1,24 +1,37 @@
 #include "../lib/node.hpp"
 #include <iostream>
 
+#define enable if(true)
+#define disable if(false)
+
 int main(int argc, char** argv) {
     {
         Node root = Node();
-        EdgeInfo_t edge;
-        edge.paths.emplace(1, Limits::common_edge);
-        edge.to = new Node('a');
-        std::cout << edge.to->to_string() << "(" << edge.to << ")" << "\n";
-        root.neighbours.emplace('a', edge);
-        std::string regex =  "f[a-c]d(asdf)g";
-        std::string regex2 = "f[c-d]d(asd)h";
-        std::vector<Node*> leafs;
-        {
+        int num = 0;
+        enable { // startup
+            std::string regex =  "a";
             auto it = regex.begin();
-            process({&root}, 1, it, regex.end(), false, leafs);
+            process({&root}, ++num, it, regex.end(), false);
         }
-        {
-            auto it = regex2.begin();
-            process({&root}, 2, it, regex2.end(), false, leafs);
+        disable { // sets and brackets
+            std::string regex =  "f[a-c]d(asdf)g";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
+        }
+        disable { // sets and brackets with overlapping with previous regex
+            std::string regex = "f[c-d]d(asd)h";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
+        }
+        enable { // brackets in brackets with ORs
+            std::string regex = "f((c|d)d(a|b))e";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
+        }
+        disable { // OR operator
+            std::string regex = "a(bc|de)f";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
         }
         root.print();
     }

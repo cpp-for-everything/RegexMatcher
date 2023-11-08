@@ -23,11 +23,12 @@ using EdgeInfo_t = EdgeInfo<UniqueMatchDataPtr, Node>;
 class Node;
 
 class SubTree {
-private:
+public:
     std::vector<Node*> roots;
     std::vector<Node*> leafs;
-public:
+
     SubTree(std::vector<Node*> a, std::vector<Node*> b) : roots(a), leafs(b) {}
+    SubTree() : roots(), leafs() {}
 
     const std::vector<Node*>& get_roots() const {
         return roots;
