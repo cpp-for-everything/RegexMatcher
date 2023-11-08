@@ -1,6 +1,6 @@
 #include "../lib/node.hpp"
 
-std::vector<Limits> Node::all_limits = std::vector<Limits>();
+std::list<Limits> Node::all_limits = std::list<Limits>();
 
 bool Node::hasChild(symbol ch) {
     if (this->neighbours.find(ch) != this->neighbours.end())
@@ -11,7 +11,7 @@ Node* Node::getChild(symbol ch) {
     return this->neighbours.find(ch)->second.to;
 }
 
-void Node::connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::vector<Limits>::iterator> limit) {
+void Node::connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::list<Limits>::iterator> limit) {
     std::cout << "limits: " << this->current_symbol.to_string() << child->current_symbol.to_string() << " " << limit.has_value() << " " << Limits::to_string(limit) << std::endl;
     if (neighbours.find(child->current_symbol) != neighbours.end()) {
         neighbours[child->current_symbol].paths.emplace(regex, limit);

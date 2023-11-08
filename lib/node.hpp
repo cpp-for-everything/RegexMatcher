@@ -41,7 +41,7 @@ public:
 
 class Node {
 public:
-    static std::vector<Limits> all_limits;
+    static std::list<Limits> all_limits;
 
     /**
      * @brief All directly connected nodes
@@ -68,8 +68,8 @@ public:
      * 
      * @param ch Node's symbol
      */
-    Node (char ch) {
-        current_symbol = symbol(ch);
+    Node (symbol ch) {
+        current_symbol = ch;
     }
 
     /**
@@ -109,7 +109,7 @@ public:
      * @param regex  Regex data that is being used to indentify the regex that the edge is part of
      * @param limits Pointer to the shared limit of the edge (nullptr if no limit is applied)
      */
-    void connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::vector<Limits>::iterator> limits = std::nullopt);
+    void connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::list<Limits>::iterator> limits = std::nullopt);
 
     /**
      * @brief Matches a string with all regexes and returns the identified of the one that matches

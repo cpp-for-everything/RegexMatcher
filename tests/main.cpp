@@ -33,8 +33,23 @@ int main(int argc, char** argv) {
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        enable { // Repeat operator
+        disable { // Repeat operator
             std::string regex = "a(b|c){1,3}";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
+        }
+        disable { // Repeat operator
+            std::string regex = "a(b|c){1,}";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
+        }
+        enable { // Repeat operator
+            std::string regex = "a(b|c){,3}d";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
+        }
+        enable { // Repeat operator
+            std::string regex = "a.{,3}d";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }

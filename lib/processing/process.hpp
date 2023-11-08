@@ -39,21 +39,27 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
             nodeLayers.resize(1);
         }
         else if (*it == '{') {
-            std::vector<Limits>::iterator limits = processLimit(nodeLayers.back(), regex, it);
+            std::list<Limits>::iterator limits = processLimit(nodeLayers.back(), regex, it);
         }
         else { // normal character
+            symbol sym;
             if (*it == '\\') { // skip escape symbol
                 it ++;
+                sym = symbol(*it);
             }
+            else if (*it == '.') 
+                sym = symbol::Any;
+            else
+                sym = symbol(*it);
             Node* nextNode = nullptr;
             for (auto parent : nodeLayers.back().get_leafs()) {
-                if (parent->neighbours.find(*it) != parent->neighbours.end()) {
-                    nextNode = parent->neighbours[*it].to;
+                if (parent->neighbours.find(sym) != parent->neighbours.end()) {
+                    nextNode = parent->neighbours[sym].to;
                     break;
                 }
             }
             if (nextNode == nullptr) {
-                nextNode = new Node(*it);
+                nextNode = new Node(sym);
             }
             for (auto parent : nodeLayers.back().get_leafs()) {
                 parent->connect_with(nextNode, regex);
@@ -62,5 +68,14 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
         }
     }
     answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(), nodeLayers.back().get_leafs().end());
+    if (it == end) {
+        Node* end_of_regex = new Node(symbol::EOR);
+        SubTree final_answer = {answer.get_roots(), {end_of_regex}};
+        for (auto parent : nodeLayers.back().get_leafs()) {
+            parent->connect_with(end_of_regex, regex);
+        }
+        return final_answer;
+    }
+
     return answer;
 }
