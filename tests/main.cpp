@@ -13,32 +13,32 @@ int main(int argc, char** argv) {
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        disable { // sets and brackets
+        enable { // sets and brackets
             std::string regex =  "f[a-c]d(asdf)g";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        disable { // sets and brackets with overlapping with previous regex
+        enable { // sets and brackets with overlapping with previous regex
             std::string regex = "f[c-d]d(asd)h";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        disable { // brackets in brackets with ORs
+        enable { // brackets in brackets with ORs
             std::string regex = "f((c|d)d(a|b))e";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        disable { // OR operator
+        enable { // OR operator
             std::string regex = "a(bc|de)f";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        disable { // Repeat operator
+        enable { // Repeat operator
             std::string regex = "a(b|c){1,3}";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        disable { // Repeat operator
+        enable { // Repeat operator
             std::string regex = "a(b|c){1,}";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
