@@ -39,7 +39,7 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
             nodeLayers.resize(1);
         }
         else if (*it == '{') {
-            
+            std::vector<Limits>::iterator limits = processLimit(nodeLayers.back(), regex, it);
         }
         else { // normal character
             if (*it == '\\') { // skip escape symbol
