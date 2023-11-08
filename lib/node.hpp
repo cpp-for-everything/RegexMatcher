@@ -41,6 +41,8 @@ public:
 
 class Node {
 public:
+    static std::vector<Limits> all_limits;
+
     /**
      * @brief All directly connected nodes
      * 
@@ -103,30 +105,48 @@ public:
     /**
      * @brief Adds a child node to the current one and marks the connection as part of a given regex match
      * 
-     * @param child Existing node
-     * @param regex Regex data that is being used to indentify the regex that the edge is part of
+     * @param child  Existing node
+     * @param regex  Regex data that is being used to indentify the regex that the edge is part of
+     * @param limits Pointer to the shared limit of the edge (nullptr if no limit is applied)
      */
-    void connect_with(Node* child, UniqueMatchDataPtr regex);
+    void connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::vector<Limits>::iterator> limits = std::nullopt);
 
-    void print(size_t layer = 0) {
+    /**
+     * @brief Matches a string with all regexes and returns the identified of the one that matches
+     * 
+     * @param text string that is being tried to be matched with any of the added regexes
+     * @return std::optional<UniqueMatchDataPtr> unique identified of the regex that matches the string (std::nullopt if no match is found)
+     */
+    std::optional<UniqueMatchDataPtr> match(std::string text);
+    
+    std::optional<UniqueMatchDataPtr> match_helper(std::string& text, size_t index);
+
+    void print_helper(size_t layer, std::set<Node*>& traversed, std::map<Node*, std::string>& nodes) {
+        if (traversed.find(this) != traversed.end())
+            return;
         const std::string layer_str = (std::stringstream() << layer).str() + "_";
         const std::string next_layer = (std::stringstream() << (layer + 1)).str() + "_";
-        std::map<Node*, std::string> nodes;
-        nodes.insert({this, layer_str + current_symbol.to_string()});
+        traversed.emplace(this);
+        nodes.emplace(this, layer_str + current_symbol.to_string());
         for (auto child : neighbours) {
-            if (nodes.find(child.second.to) != nodes.end()) {
-                std::cout << nodes[this] << " " << nodes[child.second.to] << std::endl;
+            if (nodes.find(child.second.to) == nodes.end()) {
+                nodes.emplace(child.second.to, next_layer + child.second.to->current_symbol.to_string());
             }
-            else {
-                nodes.insert({child.second.to, next_layer + child.second.to->current_symbol.to_string()});
-                std::cout << nodes[this] << " " << nodes[child.second.to] << " " << child.second.paths.begin()->first;
-                for (auto it = std::next(child.second.paths.begin()) ; it != child.second.paths.end() ; it ++) {
-                    std::cout << "," << it->first;
-                }
-                std::cout << std::endl;
-                child.second.to->print(layer + 1);
+            std::cout << nodes[this] << " " << nodes[child.second.to] << " ";
+            std::cout << child.second.paths.begin()->first << Limits::to_string(child.second.paths.begin()->second);
+            for (auto it = std::next(child.second.paths.begin()) ; it != child.second.paths.end() ; it ++) {
+                std::cout << "," << it->first << Limits::to_string(it->second);
+            }
+            std::cout << std::endl;
+            if (nodes.find(child.second.to) != nodes.end()) {
+                child.second.to->print_helper(layer + 1, traversed, nodes);
             }
         }
+    }
+    void print() {
+        std::set<Node*> traversed;
+        std::map<Node*, std::string> nodes;
+        print_helper(0, traversed, nodes);
     }
 };
 

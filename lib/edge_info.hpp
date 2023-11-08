@@ -4,6 +4,7 @@
 #define EDGE_INFO_H
 
 #include <map>
+#include <vector>
 #include <optional>
 
 /**
@@ -13,7 +14,7 @@
  */
 template<typename T, typename Node>
 struct EdgeInfo {
-    std::map<T, std::optional<Limits>> paths; // each path may have different requirements for how many times should the edge be repeated.
+    std::map<T, std::optional<std::vector<Limits>::iterator>> paths; // each path may have different requirements for how many times should the edge be repeated.
     Node* to;
 };
 

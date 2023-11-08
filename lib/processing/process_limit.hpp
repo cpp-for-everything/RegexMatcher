@@ -10,56 +10,45 @@
  * @return 
  */
 template<typename ConstIterator>
-static void processLimit(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it) {
+static std::vector<Limits>::iterator processLimit(SubTree lastest, UniqueMatchDataPtr regex, ConstIterator& it) {
     if (*it != '{') // not called at the beginning of a set
-        return {};
-    else it++;
-    std::vector<Node*> leafs;
-    ConstIterator prev;
-    bool takeTheNextSymbolLitterally = false;
+    {
+        std::cout << "Boza";
+        throw "pass";
+    }
+    else 
+        it++;
+    Node::all_limits.push_back(Limits::common_edge);
+    std::vector<Limits>::iterator answer = Node::all_limits.end();
+    answer--;
+    bool min = true;
+    size_t number = 0;
 
+    number = 0;
     while(*it != '}') {
-        if (!takeTheNextSymbolLitterally) {
-            if ('0' <= *it && *it <= '9') { // escape symbol is always followed by a reglar character
-                it ++; // so it is included no matter what
-
-            }
-            else if (*it == ',') {
-                it ++;
-                for (char ch = ((*prev) + 1) ; ch <= *it ; ch ++) {
-                    Node* nextLeaf = nullptr;
-                    for (auto parent : parents)
-                        if (parent->hasChild(ch)) {
-                            nextLeaf = parent->getChild(ch);
-                            break;
-                        }
-                    if (nextLeaf == nullptr) {
-                        nextLeaf = new Node(ch);
-                    }
-                    leafs.push_back(nextLeaf);
-                }
-            }
-            // TODO: implement not
-            else {
-                takeTheNextSymbolLitterally = true;
-            }
+        if (*it == ',') {
+            min = false;
+            answer->min = number;
+            number = 0;
         }
-        if (takeTheNextSymbolLitterally)
-        {
-            Node* nextLeaf = nullptr;
-            for (auto parent : parents)
-                if (parent->hasChild(*it)) {
-                    nextLeaf = parent->getChild(*it);
-                    break;
-                }
-            if (nextLeaf == nullptr) {
-                nextLeaf = new Node(*it);
-            }
-            leafs.push_back(nextLeaf);
-            takeTheNextSymbolLitterally = false;
+        else { // it is a digit
+            number = number * 10 + (*it - '0');
         }
-        prev = it;
         it ++;
     }
-    return leafs;
+
+    if (!min && number != 0)
+        answer->max = number;
+    if (!min && number == 0)
+        answer->max = std::nullopt;
+    if (min)
+        answer->max = number;
+
+    for (auto leaf : lastest.get_leafs()) {
+        for (auto root : lastest.get_roots()) {
+            leaf->connect_with(root, regex, answer);
+        }
+    }
+
+    return answer;
 }

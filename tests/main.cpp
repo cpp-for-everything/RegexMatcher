@@ -23,13 +23,18 @@ int main(int argc, char** argv) {
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
-        enable { // brackets in brackets with ORs
+        disable { // brackets in brackets with ORs
             std::string regex = "f((c|d)d(a|b))e";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
         disable { // OR operator
             std::string regex = "a(bc|de)f";
+            auto it = regex.begin();
+            process({&root}, ++num, it, regex.end(), false);
+        }
+        enable { // Repeat operator
+            std::string regex = "a(b|c){1,3}";
             auto it = regex.begin();
             process({&root}, ++num, it, regex.end(), false);
         }
