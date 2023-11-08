@@ -14,13 +14,14 @@ struct symbol {
 
     static const symbol Any;
     static const symbol None;
+    static const symbol EOR; // end-of-regex
 
     symbol() : symbol(symbol::None) {}
     symbol(char s) : ch(s), wildcard(false), none(false) {}
     symbol(char s, bool w, bool n) : ch(s), wildcard(w), none(n) {}
 
-    bool operator== (const symbol& s) const {
-        return (wildcard && s.wildcard) || (none && s.none) || (ch == s.ch);
+    inline bool operator== (const symbol& s) const {
+        return (wildcard == s.wildcard) && (none == s.none) && (ch == s.ch);
     }
 
     bool operator<(const symbol& s) const {
@@ -33,8 +34,9 @@ struct symbol {
     }
 
     inline std::string to_string() const {
-        if (wildcard) return "wildcard";
-        if (none) return "(empty)";
+        if (*this == symbol::Any) return "wildcard";
+        if (*this == symbol::None) return "(empty)";
+        if (*this == symbol::EOR) return "EOR";
         return std::string(1, ch);
     }
 };
