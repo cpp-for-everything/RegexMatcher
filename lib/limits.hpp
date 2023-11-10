@@ -33,6 +33,20 @@ struct Limits {
         if (!it.value()->max.has_value()) { return (std::stringstream() << "(" << it.value()->min << "+)").str(); }
         return (std::stringstream() << "(" << it.value()->min << "..." << it.value()->max.value() << ")").str();
     }
+
+    Limits& operator--() {
+        if (min > 0) min --;
+        if (max.has_value() && max.value() > 0) max = max.value() - 1;
+        return *this;
+    }
+
+    bool is_required() const {
+        return min > 0;
+    }
+
+    bool is_allowed_to_repeat() const {
+        return !max.has_value() || max.value() > 0;
+    }
 };
 
 #endif
