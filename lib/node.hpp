@@ -115,11 +115,13 @@ public:
      * @brief Matches a string with all regexes and returns the identified of the one that matches
      * 
      * @param text string that is being tried to be matched with any of the added regexes
-     * @return std::optional<UniqueMatchDataPtr> unique identified of the regex that matches the string (std::nullopt if no match is found)
+     * @return std::vector<UniqueMatchDataPtr> set of unique identifiers of the regexes that matches the string
      */
-    std::optional<UniqueMatchDataPtr> match(std::string text);
+    std::vector<UniqueMatchDataPtr> match(std::string text);
     
-    std::optional<UniqueMatchDataPtr> match_helper(std::string& text, size_t index);
+    std::vector<UniqueMatchDataPtr> match_helper(const std::string& text, size_t index, std::vector<UniqueMatchDataPtr> paths);
+
+    static std::vector<UniqueMatchDataPtr> common_values(const std::vector<UniqueMatchDataPtr>& sorted, const std::map<UniqueMatchDataPtr, std::optional<std::list<Limits>::iterator>>& paths);
 
     void print_helper(size_t layer, std::set<Node*>& traversed, std::map<Node*, std::string>& nodes) {
         if (traversed.find(this) != traversed.end())
