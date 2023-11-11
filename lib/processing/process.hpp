@@ -41,6 +41,10 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
         else if (*it == '{') {
             std::list<Limits>::iterator limits = processLimit(nodeLayers.back(), regex, it);
         }
+        else if (auto special_regex = Node::special_symbols.find(*it); special_regex != Node::special_symbols.end()) {
+            auto tmp_it = special_regex->second.cbegin();
+            std::list<Limits>::iterator limits = processLimit(nodeLayers.back(), regex, tmp_it);
+        }
         else { // normal character
             symbol sym;
             if (*it == '\\') { // skip escape symbol

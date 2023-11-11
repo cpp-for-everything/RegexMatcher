@@ -10,7 +10,7 @@
  * @return std::vector<Node*> 
  */
 template<typename ConstIterator>
-static SubTree processSet(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it) {
+SubTree processSet(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it) {
     if (*it != '[') // not called at the beginning of a set
         return {parents, parents};
     else it++;

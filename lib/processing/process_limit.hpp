@@ -10,7 +10,7 @@
  * @return 
  */
 template<typename ConstIterator>
-static std::list<Limits>::iterator processLimit(SubTree& lastest, UniqueMatchDataPtr regex, ConstIterator& it) {
+std::list<Limits>::iterator processLimit(SubTree& lastest, UniqueMatchDataPtr regex, ConstIterator& it) {
     if (*it != '{') // not called at the beginning of a set
     {
         std::cout << "Boza";
@@ -55,6 +55,9 @@ static std::list<Limits>::iterator processLimit(SubTree& lastest, UniqueMatchDat
         }
         answer->min = 1;
     }
+    answer->min = answer->min - 1;
+    if (answer->max.has_value())
+        answer->max = answer->max.value() - 1;
 
     return answer;
 }
