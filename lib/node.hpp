@@ -40,7 +40,8 @@ public:
 };
 
 class Node {
-public:
+private:
+    static std::map<symbol, std::string> special_symbols;
     static std::list<Limits> all_limits;
 
     /**
@@ -55,6 +56,7 @@ public:
      */
     symbol current_symbol;
 
+public:
     /**
      * @brief Construct a new Node object
      * 
@@ -72,6 +74,7 @@ public:
         current_symbol = ch;
     }
 
+private:
     /**
      * @brief Represents the current node's symbol as string
      * 
@@ -111,6 +114,7 @@ public:
      */
     void connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::list<Limits>::iterator> limits = std::nullopt);
 
+public:
     /**
      * @brief Matches a string with all regexes and returns the identified of the one that matches
      * 
@@ -118,12 +122,15 @@ public:
      * @return std::vector<UniqueMatchDataPtr> set of unique identifiers of the regexes that matches the string
      */
     std::vector<UniqueMatchDataPtr> match(std::string text);
-    
+
+private:
+
     std::vector<UniqueMatchDataPtr> match_helper(const std::string& text, size_t index, std::vector<UniqueMatchDataPtr> paths);
 
-    static std::vector<UniqueMatchDataPtr> common_values(const std::vector<UniqueMatchDataPtr>& sorted, const std::map<UniqueMatchDataPtr, std::optional<std::list<Limits>::iterator>>& paths);
+    template<typename T>
+    static std::vector<UniqueMatchDataPtr> common_values(const std::vector<UniqueMatchDataPtr>& sorted, const std::map<UniqueMatchDataPtr, T>& paths);
 
-    void print_helper(size_t layer, std::set<Node*>& traversed, std::map<Node*, std::string>& nodes) {
+    void print_helper(size_t layer, std::set<const Node*>& traversed, std::map<const Node*, std::string>& nodes) const {
         if (traversed.find(this) != traversed.end())
             return;
         const std::string layer_str = (std::stringstream() << layer).str() + "_";
@@ -145,15 +152,25 @@ public:
             }
         }
     }
-    void print() {
-        std::set<Node*> traversed;
-        std::map<Node*, std::string> nodes;
+public:
+    void print() const {
+        std::set<const Node*> traversed;
+        std::map<const Node*, std::string> nodes;
         print_helper(0, traversed, nodes);
     }
+
+    template<typename ConstIterator>
+    friend SubTree process(std::vector<Node*>, UniqueMatchDataPtr, ConstIterator&, ConstIterator, const bool);
+
+    template<typename ConstIterator>
+    friend SubTree processSet(std::vector<Node*>, UniqueMatchDataPtr, ConstIterator&);
+    
+    template<typename ConstIterator>
+    friend std::list<Limits>::iterator processLimit(SubTree&, UniqueMatchDataPtr, ConstIterator&);
 };
 
-#include "processing/process.hpp"
 #include "processing/process_set.hpp"
 #include "processing/process_limit.hpp"
+#include "processing/process.hpp"
 
 #endif

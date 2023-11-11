@@ -23,6 +23,9 @@ struct symbol {
     inline bool operator== (const symbol& s) const {
         return (wildcard == s.wildcard) && (none == s.none) && (ch == s.ch);
     }
+    inline bool operator!= (const symbol& s) const {
+        return (wildcard != s.wildcard) || (none != s.none) || (ch != s.ch);
+    }
 
     bool operator<(const symbol& s) const {
         if (ch == s.ch) {
