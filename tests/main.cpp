@@ -10,7 +10,8 @@ int main(int argc, char** argv) {
         int num = 0;
         std::vector<std::string> regexes;
         
-        enable(regexes, "d(ab|cd)*g+")
+        disable(regexes, "d(abc|def)*g+")
+        enable(regexes, "d(abc)*g+")
         disable(regexes, "a?")
         disable(regexes, "b|c")
         disable(regexes, "(d|e)f")
@@ -68,14 +69,14 @@ int main(int argc, char** argv) {
         enable(texts, "fccdacgg")
 
         enable(texts, "dab")
-        enable(texts, "dabab")
-        enable(texts, "dabcd")
-        enable(texts, "dcdcd")
-        enable(texts, "dabg")
+        enable(texts, "dabcabc")
+        enable(texts, "dabc")
+        enable(texts, "ddefdef")
+        enable(texts, "dabcg")
         enable(texts, "dg")
-        enable(texts, "dababg")
-        enable(texts, "dcdabg")
-        enable(texts, "dcdcdg")
+        enable(texts, "dabcabcg")
+        enable(texts, "ddefabcg")
+        enable(texts, "ddefdefg")
 
         for (std::string text : texts){
             std::cout << "Matching '" << text << "' resulted in: ";

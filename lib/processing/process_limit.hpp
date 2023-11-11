@@ -45,7 +45,11 @@ std::list<Limits>::iterator processLimit(SubTree& lastest, UniqueMatchDataPtr re
 
     for (auto leaf : lastest.get_leafs()) {
         for (auto root : lastest.get_roots()) {
-            leaf->connect_with(root, regex, answer);
+            for (auto root_child : root->neighbours) {
+                if (root_child.second.paths.find(regex) != root_child.second.paths.end()) {
+                    leaf->connect_with(root_child.second.to, regex, answer);
+                }
+            }
         }
     }
 
