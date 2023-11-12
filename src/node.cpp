@@ -1,22 +1,27 @@
 #include "../lib/node.hpp"
 
-std::list<Limits> Node::all_limits = std::list<Limits>();
-std::map<symbol, std::string> Node::special_symbols = {
+template<typename UniqueMatchDataPtr, typename char_t>
+std::list<Limits> Node<UniqueMatchDataPtr, char_t>::all_limits = std::list<Limits>();
+
+template<typename UniqueMatchDataPtr, typename char_t>
+std::map<symbol<char_t>, std::string> Node<UniqueMatchDataPtr, char_t>::special_symbols = {
     {'+', "{1,}"},
     {'*', "{0,}"},
     {'?', "{0,1}"}
 };
 
-bool Node::hasChild(symbol ch) {
-    if (this->neighbours.find(ch) != this->neighbours.end())
-        return true;
+template<typename UniqueMatchDataPtr, typename char_t>
+bool Node<UniqueMatchDataPtr, char_t>::hasChild(symbol<char_t> ch) {
+    return (this->neighbours.find(ch) != this->neighbours.end());
 }
 
-Node* Node::getChild(symbol ch) {
+template<typename UniqueMatchDataPtr, typename char_t>
+typename Node<UniqueMatchDataPtr, char_t>* Node<UniqueMatchDataPtr, char_t>::getChild(symbol<char_t> ch) {
     return this->neighbours.find(ch)->second.to;
 }
 
-void Node::connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std::list<Limits>::iterator> limit) {
+template<typename UniqueMatchDataPtr, typename char_t>
+void Node<UniqueMatchDataPtr, char_t>::connect_with(typename Node<UniqueMatchDataPtr, char_t>* child, UniqueMatchDataPtr regex, std::optional<std::list<Limits>::iterator> limit) {
     if (neighbours.find(child->current_symbol) != neighbours.end()) {
         neighbours[child->current_symbol].paths.emplace(regex, limit);
         return;
@@ -25,55 +30,42 @@ void Node::connect_with(Node* child, UniqueMatchDataPtr regex, std::optional<std
     neighbours[child->current_symbol].to = child;
 }
 
-std::vector<UniqueMatchDataPtr> Node::match(std::string text) {
-    std::vector<UniqueMatchDataPtr> answer;
-    if (this->neighbours.find(text[0]) != this->neighbours.end()) {
-        std::vector<UniqueMatchDataPtr> paths;
-        for (auto path : this->neighbours[text[0]].paths) {
-            paths.push_back(path.first);
-        }
-        for (auto match : this->neighbours[text[0]].to->match_helper(text, 1, paths)) {
-            answer.push_back(match);
-        }
+template<typename UniqueMatchDataPtr, typename char_t>
+template<typename ConstIterator>
+std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match(ConstIterator begin, ConstIterator end) {
+    if (begin == end) {
+        return {};
     }
-    if (this->neighbours.find(symbol::Any) != this->neighbours.end()) {
-        std::vector<UniqueMatchDataPtr> paths;
-        for (auto path : this->neighbours[symbol::Any].paths) {
-            paths.push_back(path.first);
-        }
-        for (auto match : this->neighbours[symbol::Any].to->match_helper(text, 1, paths)) {
-            answer.push_back(match);
+    std::vector<UniqueMatchDataPtr> answer;
+    for (symbol<char_t> ch : {symbol<char_t>(*begin), symbol<char_t>::Any, symbol<char_t>::None}) {
+        if (this->neighbours.find(ch) != this->neighbours.end()) {
+            std::vector<UniqueMatchDataPtr> paths;
+            for (auto path : this->neighbours[ch].paths) {
+                paths.push_back(path.first);
+            }
+            if (ch != symbol<char_t>::None) begin++;
+            for (auto match : this->neighbours[ch].to->match_helper(begin, end, paths)) {
+                answer.push_back(match);
+            }
+            if (ch != symbol<char_t>::None) begin--;
         }
     }
     return std::move(answer);
 }
 
-std::vector<UniqueMatchDataPtr> Node::match_helper(const std::string& text, size_t index, std::vector<UniqueMatchDataPtr> paths) {
+template<typename UniqueMatchDataPtr, typename char_t>
+template<typename ConstIterator>
+std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match_helper(ConstIterator begin, ConstIterator end, std::vector<UniqueMatchDataPtr> paths) {
     if (paths.size() == 0) return {};
-    // std::cout << std::string(3 * index, ' ') << this->current_symbol.to_string() << " -> ";
-    // if (index == text.size()) std::cout << "EOR";
-    // else std::cout << text[index];
-    // std::cout << " | Children: ";
-    // for (auto x : this->neighbours) 
-    // {
-    //     if (x.second.to != nullptr)
-    //         std::cout << x.second.to->current_symbol.to_string() << "(";
-    //         for (auto y : x.second.paths) std::cout << y.first << " ";
-    //         std::cout << "),";
-    // }
-    // std::cout << " | Regex candidates (UIDs): ";
-    // for (auto x : paths) std::cout << x << " ";
-    // std::cout << std::endl;
-    if (index == text.size()) {        
-        if (auto it = this->neighbours.find(symbol::EOR); it != this->neighbours.end()) {
+    if (begin == end) {        
+        if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
             return common_values(paths, it->second.paths);
         }
         return {};
     }
     std::vector<UniqueMatchDataPtr> answer;
-    for (symbol to_test : {symbol(text[index]), symbol::Any, symbol::None}) {
+    for (symbol<char_t> to_test : {symbol<char_t>(*begin), symbol<char_t>::Any, symbol<char_t>::None}) {
         if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
-            //std::cout << std::string(3 * index, ' ') << "- " << "Child " << to_test.to_string() << " found:" << std::endl;
             std::map<UniqueMatchDataPtr, std::optional<Limits>> current_paths;
             for (auto path : it->second.paths) {
                 if (path.second.has_value() && !path.second.value()->is_allowed_to_repeat()) continue;
@@ -84,9 +76,11 @@ std::vector<UniqueMatchDataPtr> Node::match_helper(const std::string& text, size
                 else
                     current_paths.emplace(path.first, std::nullopt);
             }
-            for (auto match : it->second.to->match_helper(text, index + (to_test != symbol::None), common_values(paths, current_paths))) {
+            if (to_test != symbol<char_t>::None) begin ++;
+            for (auto match : it->second.to->match_helper(begin, end, common_values(paths, current_paths))) {
                 answer.push_back(match);
             }
+            if (to_test != symbol<char_t>::None) begin --;
             for (auto x : current_paths) {
                 if(x.second.has_value())
                     (*it->second.paths[x.first].value()) = x.second.value();
@@ -96,13 +90,9 @@ std::vector<UniqueMatchDataPtr> Node::match_helper(const std::string& text, size
     return std::move(answer);
 }
 
+template<typename UniqueMatchDataPtr, typename char_t>
 template<typename T>
-std::vector<UniqueMatchDataPtr> Node::common_values(const std::vector<UniqueMatchDataPtr>& sorted, const std::map<UniqueMatchDataPtr, T>& paths) {
-    // std::cout << "matching: ";
-    // for (auto x : sorted) std::cout << x << " ";
-    // std::cout << " | ";
-    // for (auto x : paths) std::cout << x.first << " ";
-    // std::cout << std::endl;
+std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::common_values(const std::vector<UniqueMatchDataPtr>& sorted, const std::map<UniqueMatchDataPtr, T>& paths) {
     std::vector<UniqueMatchDataPtr> answer;
     auto it = paths.cbegin();
     size_t ind = 0;

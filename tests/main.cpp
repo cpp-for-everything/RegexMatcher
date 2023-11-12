@@ -1,4 +1,4 @@
-#include "../lib/node.hpp"
+#include <RegexMatcher.hpp>
 #include <iostream>
 
 #define enable(x,y) x.push_back(y);
@@ -6,23 +6,23 @@
 
 int main(int argc, char** argv) {
     {
-        Node root = Node();
+        RegexMatcher<int, char> root;
         int num = 0;
         std::vector<std::string> regexes;
         
-        enable(regexes, "d(abc|def)*g+")
-        enable(regexes, "d(abc)*g+")
-        enable(regexes, "a?")
-        enable(regexes, "b|c")
-        enable(regexes, "(d|e)f")
+        //enable(regexes, "d(abc|def)*g+")
+        //enable(regexes, "d(abc)*g+")
+        //enable(regexes, "a?")
+        //enable(regexes, "b|c")
+        //enable(regexes, "(d|e)f")
         enable(regexes, "f[a-c]?d(ab|cd)*g+")
 
         for (std::string regex : regexes) {
             std::cout << "'" << regex << "' is number " << ++num << std::endl;
             auto it = regex.begin();
-            process({&root}, num, it, regex.end(), false);
+            root.add_regex(regex, num);
         }
-        root.print();
+        root.print_list_of_edges();
 
         std::vector<std::string> texts;
 

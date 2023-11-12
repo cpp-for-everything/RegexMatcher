@@ -1,5 +1,10 @@
 #include "../lib/symbol.hpp"
 
-const symbol symbol::Any{'\0', true, false};
-const symbol symbol::None{'-', false, true};
-const symbol symbol::EOR{'\0', false, true};
+template<typename char_t>
+const symbol<char_t> symbol<char_t>::Any{'\0', true, false};
+
+template<typename char_t>
+const symbol<char_t> symbol<char_t>::None{'-', false, true};
+
+template<typename char_t>
+const symbol<char_t> symbol<char_t>::EOR{'\0', false, true};
