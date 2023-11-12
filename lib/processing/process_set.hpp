@@ -60,5 +60,5 @@ SubTree processSet(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIt
         prev = it;
         it ++;
     }
-    return {parents, leafs};
+    return {leafs, leafs};
 }

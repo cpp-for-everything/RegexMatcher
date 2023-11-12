@@ -166,7 +166,7 @@ public:
     friend SubTree processSet(std::vector<Node*>, UniqueMatchDataPtr, ConstIterator&);
     
     template<typename ConstIterator>
-    friend std::list<Limits>::iterator processLimit(SubTree&, UniqueMatchDataPtr, ConstIterator&);
+    friend std::list<Limits>::iterator processLimit(const SubTree&, SubTree&, UniqueMatchDataPtr, ConstIterator&);
 };
 
 #include "processing/process_set.hpp"

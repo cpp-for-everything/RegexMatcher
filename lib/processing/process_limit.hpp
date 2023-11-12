@@ -10,7 +10,7 @@
  * @return 
  */
 template<typename ConstIterator>
-std::list<Limits>::iterator processLimit(SubTree& lastest, UniqueMatchDataPtr regex, ConstIterator& it) {
+std::list<Limits>::iterator processLimit(const SubTree& parent_of_latest, SubTree& lastest, UniqueMatchDataPtr regex, ConstIterator& it) {
     if (*it != '{') // not called at the beginning of a set
     {
         std::cout << "Boza";
@@ -45,16 +45,17 @@ std::list<Limits>::iterator processLimit(SubTree& lastest, UniqueMatchDataPtr re
 
     for (auto leaf : lastest.get_leafs()) {
         for (auto root : lastest.get_roots()) {
-            for (auto root_child : root->neighbours) {
-                if (root_child.second.paths.find(regex) != root_child.second.paths.end()) {
-                    leaf->connect_with(root_child.second.to, regex, answer);
-                }
-            }
+            leaf->connect_with(root, regex, answer);
+            // for (auto root_child : root->neighbours) {
+            //     if (root_child.second.paths.find(regex) != root_child.second.paths.end()) {
+            //         leaf->connect_with(root_child.second.to, regex, answer);
+            //     }
+            // }
         }
     }
 
     if (answer->min == 0) {
-        for (auto root : lastest.get_roots()) {
+        for (auto root : parent_of_latest.get_leafs()) {
             lastest.leafs.push_back(root);
         }
         answer->min = 1;
