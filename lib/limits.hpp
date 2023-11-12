@@ -45,8 +45,10 @@ struct Limits {
     }
 
     bool is_allowed_to_repeat() const {
-        return !max.has_value() || max.value() > 0;
+        return !max.has_value() || (max.value() > 0 && this->min <= this->max.value());
     }
 };
+
+#include "../src/limits.cpp"
 
 #endif
