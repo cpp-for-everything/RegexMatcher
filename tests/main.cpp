@@ -10,11 +10,11 @@ int main(int argc, char** argv) {
         int num = 0;
         std::vector<std::string> regexes;
         
-        disable(regexes, "d(abc|def)*g+")
-        disable(regexes, "d(abc)*g+")
-        disable(regexes, "a?")
-        disable(regexes, "b|c")
-        disable(regexes, "(d|e)f")
+        enable(regexes, "d(abc|def)*g+")
+        enable(regexes, "d(abc)*g+")
+        enable(regexes, "a?")
+        enable(regexes, "b|c")
+        enable(regexes, "(d|e)f")
         enable(regexes, "f[a-c]?d(ab|cd)*g+")
 
         for (std::string regex : regexes) {
