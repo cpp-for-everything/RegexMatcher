@@ -14,7 +14,7 @@
  */
 template<typename ConstIterator>
 SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstIterator& it, ConstIterator end, const bool inBrackets) {
-    SubTree answer = {parents, {}};
+    SubTree answer = {{}, {}};
     std::vector<SubTree> nodeLayers = {{parents, parents}};
     for ( ; it != end ; it ++) {
         if (*it == ')' && inBrackets)
@@ -35,15 +35,16 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
             nodeLayers.push_back(newLayer);
         }
         else if (*it == '|') {
+            answer.roots.insert(answer.roots.end(), nodeLayers[1].get_leafs().begin(), nodeLayers[1].get_leafs().end());
             answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(), nodeLayers.back().get_leafs().end());
             nodeLayers.resize(1);
         }
         else if (*it == '{') {
-            std::list<Limits>::iterator limits = processLimit(nodeLayers.back(), regex, it);
+            std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
         }
         else if (auto special_regex = Node::special_symbols.find(*it); special_regex != Node::special_symbols.end()) {
             auto tmp_it = special_regex->second.cbegin();
-            std::list<Limits>::iterator limits = processLimit(nodeLayers.back(), regex, tmp_it);
+            std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
         }
         else { // normal character
             symbol sym;
@@ -68,14 +69,15 @@ SubTree process(std::vector<Node*> parents, UniqueMatchDataPtr regex, ConstItera
             for (auto parent : nodeLayers.back().get_leafs()) {
                 parent->connect_with(nextNode, regex);
             }
-            nodeLayers.push_back({nodeLayers.back().get_leafs(), {nextNode}});
+            nodeLayers.push_back({{nextNode}, {nextNode}});
         }
     }
+    answer.roots.insert(answer.roots.end(), nodeLayers[1].get_leafs().begin(), nodeLayers[1].get_leafs().end());
     answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(), nodeLayers.back().get_leafs().end());
     if (it == end) {
         Node* end_of_regex = new Node(symbol::EOR);
         SubTree final_answer = {answer.get_roots(), {end_of_regex}};
-        for (auto parent : nodeLayers.back().get_leafs()) {
+        for (auto parent : answer.leafs) {
             parent->connect_with(end_of_regex, regex);
         }
         return final_answer;

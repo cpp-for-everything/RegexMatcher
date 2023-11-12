@@ -11,11 +11,11 @@ int main(int argc, char** argv) {
         std::vector<std::string> regexes;
         
         disable(regexes, "d(abc|def)*g+")
-        enable(regexes, "d(abc)*g+")
+        disable(regexes, "d(abc)*g+")
         disable(regexes, "a?")
         disable(regexes, "b|c")
         disable(regexes, "(d|e)f")
-        disable(regexes, "f[a-c]?d(ab|cd)*g+")
+        enable(regexes, "f[a-c]?d(ab|cd)*g+")
 
         for (std::string regex : regexes) {
             std::cout << "'" << regex << "' is number " << ++num << std::endl;
@@ -26,17 +26,17 @@ int main(int argc, char** argv) {
 
         std::vector<std::string> texts;
 
-        disable(texts, "")
-        disable(texts, "a")
-        disable(texts, "b")
-        disable(texts, "c")
-        disable(texts, "d")
-        disable(texts, "df")
-        disable(texts, "e")
-        disable(texts, "ef")
-        disable(texts, "fdg")
-        disable(texts, "fdgg")
-        disable(texts, "fd")
+        enable(texts, "")
+        enable(texts, "a")
+        enable(texts, "b")
+        enable(texts, "c")
+        enable(texts, "d")
+        enable(texts, "df")
+        enable(texts, "e")
+        enable(texts, "ef")
+        enable(texts, "fdg")
+        enable(texts, "fdgg")
+        enable(texts, "fd")
 
         enable(texts, "fdabgg")
         enable(texts, "fdababgg")
