@@ -42,6 +42,7 @@ class RegexMatcher {
     template<typename ConstIterator>
     static std::list<Limits>::iterator processLimit(const SubTree<Node<UniqueMatchDataPtr, symbol_t>>&, SubTree<Node<UniqueMatchDataPtr, symbol_t>>&, UniqueMatchDataPtr, ConstIterator&);
 
+    std::vector<UniqueMatchDataPtr> all_paths;
 public:
     /**
      * @brief Construct a new Regex Matcher object
@@ -56,6 +57,7 @@ public:
      */
     template<typename Iterable>
     void add_regex(Iterable str, UniqueMatchDataPtr uid) {
+        all_paths.push_back(uid);
         auto it = std::cbegin(str);
         process({&root}, uid, it, std::cend(str), false);
     }
@@ -68,7 +70,7 @@ public:
      */
     template<typename Iterable>
     std::vector<UniqueMatchDataPtr> match(Iterable str) {
-        return root.match(std::cbegin(str), std::cend(str));
+        return root.match(std::cbegin(str), std::cend(str), all_paths);
     }
 
     /**

@@ -10,12 +10,15 @@ int main(int argc, char** argv) {
         int num = 0;
         std::vector<std::string> regexes;
         
-        //enable(regexes, "d(abc|def)*g+")
-        //enable(regexes, "d(abc)*g+")
-        //enable(regexes, "a?")
-        //enable(regexes, "b|c")
-        //enable(regexes, "(d|e)f")
+        enable(regexes, "d(abc|def)*g+")
+        enable(regexes, "d(abc)*g+")
+        enable(regexes, "a?")
+        enable(regexes, "b|c")
+        enable(regexes, "(d|e)f")
         enable(regexes, "f[a-c]?d(ab|cd)*g+")
+        enable(regexes, "a{1,3}a")
+        enable(regexes, "aaa")
+        enable(regexes, "aa")
 
         for (std::string regex : regexes) {
             std::cout << "'" << regex << "' is number " << ++num << std::endl;
@@ -25,6 +28,12 @@ int main(int argc, char** argv) {
         root.print_list_of_edges();
 
         std::vector<std::string> texts;
+        
+        enable(texts, "")
+        enable(texts, "a")
+        enable(texts, "aa")
+        enable(texts, "aaa")
+        enable(texts, "aaaa")
 
         enable(texts, "")
         enable(texts, "a")

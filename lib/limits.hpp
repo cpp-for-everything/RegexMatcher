@@ -34,6 +34,11 @@ struct Limits {
         return (std::stringstream() << "(" << it.value()->min << "..." << it.value()->max.value() << ")").str();
     }
 
+    static std::string to_string(Limits a) {
+        if (!a.max.has_value()) { return (std::stringstream() << "(" << a.min << "+)").str(); }
+        return (std::stringstream() << "(" << a.min << "..." << a.max.value() << ")").str();
+    }
+
     Limits& operator--() {
         if (min > 0) min --;
         if (max.has_value() && max.value() > 0) max = max.value() - 1;

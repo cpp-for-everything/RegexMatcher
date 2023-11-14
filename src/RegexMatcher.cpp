@@ -167,6 +167,7 @@ SubTree<Node<UniqueMatchDataPtr, symbol_t>> RegexMatcher<UniqueMatchDataPtr, sym
                 nextNode = new Node<UniqueMatchDataPtr, symbol_t>(sym);
             }
             for (auto parent : nodeLayers.back().get_leafs()) {
+                if (nextNode == parent) std::cout << "knot time" << std::endl;
                 parent->connect_with(nextNode, regex);
             }
             nodeLayers.push_back({{nextNode}, {nextNode}});
