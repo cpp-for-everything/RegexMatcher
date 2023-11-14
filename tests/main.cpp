@@ -88,9 +88,10 @@ int main(int argc, char** argv) {
         enable(texts, "ddefdefg")
 
         for (std::string text : texts){
-            std::cout << "Matching '" << text << "' resulted in: ";
-            for (auto x : root.match(text)) std::cout << x << " ";
+            std::cout << "Matching '" << text << "' resulted in:\n";
+            for (auto x : root.match(text)) std::cout << "\t" << x << ") " << regexes[x - 1] << "\n";
             std::cout << std::endl;
+            getchar();
         }
     }
     return 0;
