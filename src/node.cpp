@@ -48,14 +48,13 @@ void Node<UniqueMatchDataPtr, char_t>::connect_with(typename Node<UniqueMatchDat
 
 template<typename UniqueMatchDataPtr, typename char_t>
 template<typename ConstIterator>
-std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match(ConstIterator begin, ConstIterator end, std::vector<UniqueMatchDataPtr> paths) {
-    return match_helper(begin, end, paths, nullptr);
+std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match(ConstIterator begin, ConstIterator end) {
+    return match_helper(begin, end, {}, nullptr);
 }
 
 template<typename UniqueMatchDataPtr, typename char_t>
 template<typename ConstIterator>
-std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match_helper(ConstIterator begin, ConstIterator end, std::vector<UniqueMatchDataPtr> paths, Node* prev) {
-    if (paths.size() == 0) return {};
+std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match_helper(ConstIterator begin, ConstIterator end, const std::vector<UniqueMatchDataPtr>& paths, Node* prev) {
     if (begin == end) {
         if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
             std::vector<UniqueMatchDataPtr> answer;
@@ -64,13 +63,16 @@ std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match_helper(C
             {
                 for (UniqueMatchDataPtr pathId : potential_answer) {
                     bool to_include = true;
-                    auto x = prev->neighbours[this->current_symbol].paths[pathId];
-                    if (x.has_value()) {
-                        to_include &= x.value()->min == 0;
+                    if (const auto knot = prev->neighbours.find(this->current_symbol); knot != prev->neighbours.end()) {
+                        if (const auto knot_path = it->second.paths.find(pathId); knot_path != it->second.paths.end())
+                            if (knot_path->second.has_value()) {
+                                to_include &= knot_path->second.value()->min == 0;
+                            }
                     }
-                    if (auto knot = this->neighbours.find(this->current_symbol); knot != this->neighbours.end()) {
-                        if (knot->second.paths[pathId].has_value())
-                            to_include &= knot->second.paths[pathId].value()->min == 0;
+                    if (const auto knot = this->neighbours.find(this->current_symbol); knot != this->neighbours.end()) {
+                        if (knot->second.paths.find(pathId) != knot->second.paths.end())
+                            if (knot->second.paths[pathId].has_value())
+                                to_include &= knot->second.paths[pathId].value()->min == 0;
                     }
                     if (to_include) {
                         answer.push_back(pathId);
@@ -87,25 +89,34 @@ std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::match_helper(C
     const symbol<char_t> current = symbol<char_t>(*begin);
     for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
         if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
+            size_t ind = 0;
+            std::vector<UniqueMatchDataPtr> new_paths;
+            new_paths.reserve(paths.size());
             std::map<UniqueMatchDataPtr, std::optional<Limits>> current_paths;
-            for (auto path : it->second.paths) {
-                if (path.second.has_value() && !path.second.value()->is_allowed_to_repeat()) continue;
-                if (path.second.has_value()) {
-                    current_paths.emplace(path.first, *path.second.value());
-                    --(*path.second.value());
+            for (const auto [pathId, limits_ptr] : it->second.paths) {
+                if (limits_ptr.has_value() && !limits_ptr.value()->is_allowed_to_repeat()) continue;
+                if (prev != nullptr) {
+                    if (paths[ind] > pathId) continue;
+                    while (ind < paths.size() && paths[ind] < pathId) ind ++;
+                    if (ind == paths.size()) break;
                 }
-                else {
-                    current_paths.emplace(path.first, std::nullopt);
+                if (prev == nullptr || paths[ind] == pathId) {
+                    new_paths.push_back(pathId);
+                    if (!limits_ptr.has_value()) continue;
+                    current_paths.emplace(pathId, *limits_ptr.value());
+                    --(*limits_ptr.value());
                 }
             }
-            if (to_test != symbol<char_t>::None) begin ++;
-            for (auto match : it->second.to->match_helper(begin, end, common_values(paths, current_paths), this)) {
-                answer.push_back(match);
-            }
-            if (to_test != symbol<char_t>::None) begin --;
-            for (auto x : current_paths) {
-                if(x.second.has_value())
-                    (*it->second.paths[x.first].value()) = x.second.value();
+            if (!new_paths.empty()) {
+                if (to_test != symbol<char_t>::None) begin ++;
+                for (auto match : it->second.to->match_helper(begin, end, new_paths, this)) {
+                    answer.push_back(match);
+                }
+                if (to_test != symbol<char_t>::None) begin --;
+                for (const auto [pathId, old_limits] : current_paths) {
+                    if(old_limits.has_value())
+                        (*it->second.paths[pathId].value()) = old_limits.value();
+                }
             }
         }
     }
@@ -116,6 +127,11 @@ template<typename UniqueMatchDataPtr, typename char_t>
 template<typename T>
 std::vector<UniqueMatchDataPtr> Node<UniqueMatchDataPtr, char_t>::common_values(const std::vector<UniqueMatchDataPtr>& sorted, const std::map<UniqueMatchDataPtr, T>& paths) {
     std::vector<UniqueMatchDataPtr> answer;
+    if (sorted.empty()) {
+        for (const auto [k, _] : paths)
+            answer.push_back(k);
+        return answer;
+    }
     auto it = paths.cbegin();
     size_t ind = 0;
     while (ind < sorted.size() && it != paths.cend()) {

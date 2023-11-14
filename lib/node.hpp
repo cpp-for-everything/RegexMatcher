@@ -92,10 +92,10 @@ private:
      * @return std::vector<UniqueMatchDataPtr> set of unique identifiers of the regexes that matches the string
      */
     template<typename ConstIterator>
-    std::vector<UniqueMatchDataPtr> match(ConstIterator, ConstIterator, std::vector<UniqueMatchDataPtr>);
+    std::vector<UniqueMatchDataPtr> match(ConstIterator, ConstIterator);
 
     template<typename ConstIterator>
-    std::vector<UniqueMatchDataPtr> match_helper(ConstIterator, ConstIterator, std::vector<UniqueMatchDataPtr>, Node*);
+    std::vector<UniqueMatchDataPtr> match_helper(ConstIterator, ConstIterator, const std::vector<UniqueMatchDataPtr>&, Node*);
 
     template<typename T>
     static std::vector<UniqueMatchDataPtr> common_values(const std::vector<UniqueMatchDataPtr>& sorted, const std::map<UniqueMatchDataPtr, T>& paths);
