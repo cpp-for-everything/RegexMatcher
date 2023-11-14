@@ -4,10 +4,7 @@ template<typename UniqueMatchDataPtr, typename symbol_t>
 template<typename ConstIterator>
 std::list<Limits>::iterator RegexMatcher<UniqueMatchDataPtr, symbol_t>::processLimit(const SubTree<Node<UniqueMatchDataPtr, symbol_t>>& parent_of_latest, SubTree<Node<UniqueMatchDataPtr, symbol_t>>& lastest, UniqueMatchDataPtr regex, ConstIterator& it) {
     if (*it != '{') // not called at the beginning of a set
-    {
-        std::cout << "Boza";
-        throw "pass";
-    }
+        throw std::logic_error("The iterator doesn't start from a limit group.");
     else 
         it++;
     
@@ -35,6 +32,14 @@ std::list<Limits>::iterator RegexMatcher<UniqueMatchDataPtr, symbol_t>::processL
     if (min)
         answer->max = number;
 
+    if (answer->is_allowed_to_repeat()) {
+        for (auto leaf : lastest.get_leafs()) {
+            for (auto root : lastest.get_roots()) {
+                leaf->connect_with(root, regex, answer);
+            }
+        }
+    }
+
     if (answer->min == 0) {
         for (auto root : parent_of_latest.get_leafs()) {
             lastest.leafs.push_back(root);
@@ -45,14 +50,6 @@ std::list<Limits>::iterator RegexMatcher<UniqueMatchDataPtr, symbol_t>::processL
     if (answer->max.has_value())
         answer->max = answer->max.value() - 1;
 
-    if (answer->is_allowed_to_repeat()) {
-        for (auto leaf : lastest.get_leafs()) {
-            for (auto root : lastest.get_roots()) {
-                leaf->connect_with(root, regex, answer);
-            }
-        }
-    }
-
     return answer;
 }
 
@@ -60,8 +57,9 @@ template<typename UniqueMatchDataPtr, typename symbol_t>
 template<typename ConstIterator>
 SubTree<Node<UniqueMatchDataPtr, symbol_t>> RegexMatcher<UniqueMatchDataPtr, symbol_t>::processSet(std::vector<Node<UniqueMatchDataPtr, symbol_t>*> parents, UniqueMatchDataPtr regex, ConstIterator& it) {
     if (*it != '[') // not called at the beginning of a set
-        return {parents, parents};
-    else it++;
+        throw std::logic_error("The iterator doesn't start from a set group.");
+    else 
+        it++;
     std::vector<Node<UniqueMatchDataPtr, symbol_t>*> leafs;
     ConstIterator prev;
     bool takeTheNextSymbolLitterally = false;
@@ -167,7 +165,6 @@ SubTree<Node<UniqueMatchDataPtr, symbol_t>> RegexMatcher<UniqueMatchDataPtr, sym
                 nextNode = new Node<UniqueMatchDataPtr, symbol_t>(sym);
             }
             for (auto parent : nodeLayers.back().get_leafs()) {
-                if (nextNode == parent) std::cout << "knot time" << std::endl;
                 parent->connect_with(nextNode, regex);
             }
             nodeLayers.push_back({{nextNode}, {nextNode}});
