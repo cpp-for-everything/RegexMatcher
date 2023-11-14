@@ -1,5 +1,6 @@
 #include <RegexMatcher.hpp>
 #include <iostream>
+#include <regex>
 
 #define enable(x,y) x.push_back(y);
 #define disable(x,y)
@@ -89,9 +90,17 @@ int main(int argc, char** argv) {
 
         for (std::string text : texts){
             std::cout << "Matching '" << text << "' resulted in:\n";
-            for (auto x : root.match(text)) std::cout << "\t" << x << ") " << regexes[x - 1] << "\n";
+            for (auto x : root.match(text)) {
+                std::cout << "\t" << x << ") " << regexes[x - 1];
+                if (std::regex_search(text, std::regex("^" + regexes[x - 1] + "$"))) {
+                    std::cout << " - Correct\n";
+                }
+                else  {
+                    std::cout << " - Incorrect\n";
+                }
+            }
             std::cout << std::endl;
-            getchar();
+            //getchar();
         }
     }
     return 0;

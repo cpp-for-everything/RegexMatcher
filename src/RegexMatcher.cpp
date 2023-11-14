@@ -32,13 +32,7 @@ std::list<Limits>::iterator RegexMatcher<UniqueMatchDataPtr, symbol_t>::processL
     if (min)
         answer->max = number;
 
-    if (answer->is_allowed_to_repeat()) {
-        for (auto leaf : lastest.get_leafs()) {
-            for (auto root : lastest.get_roots()) {
-                leaf->connect_with(root, regex, answer);
-            }
-        }
-    }
+    const size_t leafs = lastest.get_leafs().size();
 
     if (answer->min == 0) {
         for (auto root : parent_of_latest.get_leafs()) {
@@ -49,6 +43,14 @@ std::list<Limits>::iterator RegexMatcher<UniqueMatchDataPtr, symbol_t>::processL
     answer->min = answer->min - 1;
     if (answer->max.has_value())
         answer->max = answer->max.value() - 1;
+
+    if (answer->is_allowed_to_repeat()) {
+        for (size_t i = 0 ; i < leafs ; i ++) {
+            for (auto root : lastest.get_roots()) {
+                lastest.get_leafs()[i]->connect_with(root, regex, answer);
+            }
+        }
+    }
 
     return answer;
 }
