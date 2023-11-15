@@ -10,13 +10,14 @@ using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;
 using std::chrono::milliseconds;
+using namespace std::chrono_literals;
 
 int main(int argc, char** argv) {
     {
         RegexMatcher<int, char> root;
         int num = 0;
+
         std::vector<std::string> regexes;
-        
         enable(regexes, "d(abc|def)*g+")
         enable(regexes, "d(abc)*g+")
         enable(regexes, "a?")
@@ -27,12 +28,19 @@ int main(int argc, char** argv) {
         enable(regexes, "aaa")
         enable(regexes, "aa")
 
-        for (std::string regex : regexes) {
-            std::cout << "'" << regex << "' is number " << ++num << std::endl;
-            auto it = regex.begin();
-            root.add_regex(regex, num);
+        duration<double, std::milli> total, alternative = 0ms;
+        { 
+            auto t1 = high_resolution_clock::now();
+            for (std::string regex : regexes) {
+                //std::cout << "'" << regex << "' is number " << ++num << std::endl;
+                auto it = regex.begin();
+                root.add_regex(regex, ++num);
+            }
+            auto t2 = high_resolution_clock::now();
+            total = t2 - t1;
+            std::cout << "Pre-computing " << total.count() << "ms (my)" << std::endl;
         }
-        root.print_list_of_edges();
+        //root.print_list_of_edges();
 
         std::vector<std::string> texts;
         
@@ -108,6 +116,8 @@ int main(int argc, char** argv) {
                 }
             }
             auto t3 = high_resolution_clock::now();
+            total = total + (t2-t1);
+            alternative = alternative + (t3-t2);
             if (answer.size() != test_result.size()) {
                 std::cout << "\tFailed:\n";
                 for (auto x : answer) {
@@ -129,6 +139,7 @@ int main(int argc, char** argv) {
             }
             //getchar();
         }
+        std::cout << "\nTotal " << total.count() << "ms (my) vs " << alternative.count() << "ms (O(n^2))" << std::endl;
     }
     return 0;
 }

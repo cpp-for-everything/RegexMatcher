@@ -70,6 +70,10 @@
         "xhash": "cpp",
         "string": "cpp",
         "set": "cpp",
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "chrono": "cpp",
+        "forward_list": "cpp",
+        "iomanip": "cpp",
+        "regex": "cpp"
     }
 }
