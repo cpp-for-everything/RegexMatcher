@@ -74,6 +74,7 @@
         "chrono": "cpp",
         "forward_list": "cpp",
         "iomanip": "cpp",
-        "regex": "cpp"
+        "regex": "cpp",
+        "hash_map": "cpp"
     }
 }
