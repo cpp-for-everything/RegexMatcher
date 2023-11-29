@@ -14,7 +14,7 @@ using namespace std::chrono_literals;
 
 int main(int argc, char** argv) {
     {
-        RegexMatcher<int, char> root;
+        URLMatcher::RegexMatcher<int, char> root;
         int num = 0;
 
         std::vector<std::string> regexes;
