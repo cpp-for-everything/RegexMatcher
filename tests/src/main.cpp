@@ -1,4 +1,4 @@
-#include <RegexMatcher.hpp>
+#include <matcher/core.hpp>
 #include <iostream>
 #include <regex>
 
@@ -14,7 +14,7 @@ using namespace std::chrono_literals;
 
 int main(int argc, char** argv) {
     {
-        URLMatcher::RegexMatcher<int, char> root;
+        matcher::RegexMatcher<int, char> root;
         int num = 0;
 
         std::vector<std::string> regexes;
@@ -33,7 +33,6 @@ int main(int argc, char** argv) {
             auto t1 = high_resolution_clock::now();
             for (std::string regex : regexes) {
                 //std::cout << "'" << regex << "' is number " << ++num << std::endl;
-                auto it = regex.begin();
                 root.add_regex(regex, ++num);
             }
             auto t2 = high_resolution_clock::now();
