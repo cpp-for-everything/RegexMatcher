@@ -1,18 +1,13 @@
 cmake_minimum_required(VERSION 3.16.3)
 
-project(RegexMatcher)
+project(RegexMatcher VERSION 1.0.0.0)
 
-if(WIN32)
-    add_compile_options(/Za)
-endif()
-
-message(STATUS "CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT: ${CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT}")
 if(NOT DEFINED CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT OR CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/install" CACHE PATH "" FORCE)
-  message(STATUS ${CMAKE_INSTALL_PREFIX})
 endif()
 
 message(STATUS ${CMAKE_INSTALL_PREFIX})
 
+configure_file(RegexMatcherConfig.h.in ${CMAKE_BINARY_DIR}/config/RegexMatcherConfig.h)
 add_subdirectory(core)
 add_subdirectory(tests)
