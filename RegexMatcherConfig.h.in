@@ -1,0 +1,5 @@
+// the configured options and settings for Tutorial
+#define RegexMatcher_VERSION_MAJOR @RegexMatcher_VERSION_MAJOR@
+#define RegexMatcher_VERSION_MINOR @RegexMatcher_VERSION_MINOR@
+#define RegexMatcher_VERSION_PATCH @RegexMatcher_VERSION_PATCH@
+#define RegexMatcher_VERSION_TWEAK @RegexMatcher_VERSION_TWEAK@

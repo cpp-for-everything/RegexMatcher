@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RegexMatcherConfig.h"
+
 #include <map>
 #include <list>
 #include <string>

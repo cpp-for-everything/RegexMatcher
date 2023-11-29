@@ -13,6 +13,7 @@ using std::chrono::milliseconds;
 using namespace std::chrono_literals;
 
 int main(int argc, char** argv) {
+    std::cout << "RegexMatcher VERSION: " << RegexMatcher_VERSION_MAJOR << "." << RegexMatcher_VERSION_MINOR << "." << RegexMatcher_VERSION_PATCH << "." << RegexMatcher_VERSION_TWEAK << std::endl;
     {
         matcher::RegexMatcher<int, char> root;
         int num = 0;
