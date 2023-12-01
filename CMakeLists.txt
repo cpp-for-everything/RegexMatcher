@@ -1,16 +1,13 @@
 cmake_minimum_required(VERSION 3.16.3)
 
-project(RegexMatcher)
+project(RegexMatcher VERSION 1.0.0.0)
 
-# add_library(Node STATIC src/node.cpp
-#                         src/symbol.cpp
-#                         src/limits.cpp
-#                         src/RegexMatcher.cpp
-# )
-# target_include_directories(Node PUBLIC lib/)
-# set_property(TARGET Node PROPERTY CXX_STANDARD 17)
+if(NOT DEFINED CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT OR CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/install" CACHE PATH "" FORCE)
+endif()
 
-add_executable(Tests tests/main.cpp)
-target_include_directories(Tests PUBLIC lib/)
-set_property(TARGET Tests PROPERTY CXX_STANDARD 17)
-# target_link_libraries(Tests PUBLIC Node)
+message(STATUS ${CMAKE_INSTALL_PREFIX})
+
+configure_file(RegexMatcherConfig.h.in ${CMAKE_BINARY_DIR}/config/RegexMatcherConfig.h)
+add_subdirectory(core)
+add_subdirectory(tests)
