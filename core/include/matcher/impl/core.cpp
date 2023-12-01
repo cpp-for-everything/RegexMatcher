@@ -1,16 +1,21 @@
-#include "../lib/RegexMatcher.hpp"
+#ifndef CORE_IMPL
+#define CORE_IMPL
 
-namespace URLMatcher {
+#include <matcher/core.hpp>
 
-    template<typename UniqueMatchDataPtr, typename symbol_t>
+#include <list>
+
+namespace matcher {
+
+    template<typename RegexData, typename char_t>
     template<typename ConstIterator>
-    Container<std::pair<Limits, size_t>>::const_iterator RegexMatcher<UniqueMatchDataPtr, symbol_t>::processLimit(const SubTree<Node<UniqueMatchDataPtr, symbol_t>>& parent_of_latest, SubTree<Node<UniqueMatchDataPtr, symbol_t>>& lastest, UniqueMatchDataPtr regex, ConstIterator& it) {
+    std::list<Limits>::iterator RegexMatcher<RegexData, char_t>::processLimit(const SubTree<Node<RegexData, char_t>>& parent_of_latest, SubTree<Node<RegexData, char_t>>& lastest, RegexData regex, ConstIterator& it) {
         if (*it != '{') // not called at the beginning of a set
             throw std::logic_error("The iterator doesn't start from a limit group.");
         else 
             it++;
         
-        Container<std::pair<Limits, size_t>>::iterator answer = Node<UniqueMatchDataPtr, symbol_t>::all_limits.insert(Node<UniqueMatchDataPtr, symbol_t>::all_limits.end(), {Limits::common_edge, Node<UniqueMatchDataPtr, symbol_t>::all_limits.size()});
+        std::list<Limits>::iterator answer = Node<RegexData, char_t>::all_limits.insert(Node<RegexData, char_t>::all_limits.end(), Limits::common_edge);
         bool min = true;
         size_t number = 0;
 
@@ -18,7 +23,7 @@ namespace URLMatcher {
         while(*it != '}') {
             if (*it == ',') {
                 min = false;
-                answer->first.min = number;
+                answer->min = number;
                 number = 0;
             }
             else { // it is a digit
@@ -28,25 +33,25 @@ namespace URLMatcher {
         }
 
         if (!min && number != 0)
-            answer->first.max = number;
+            answer->max = number;
         if (!min && number == 0)
-            answer->first.max = std::nullopt;
+            answer->max = std::nullopt;
         if (min)
-            answer->first.max = number;
+            answer->max = number;
 
         const size_t leafs = lastest.get_leafs().size();
 
-        if (answer->first.min == 0) {
+        if (answer->min == 0) {
             for (auto root : parent_of_latest.get_leafs()) {
                 lastest.leafs.push_back(root);
             }
-            answer->first.min = 1;
+            answer->min = 1;
         }
-        answer->first.min = answer->first.min - 1;
-        if (answer->first.max.has_value())
-            answer->first.max = answer->first.max.value() - 1;
+        answer->min = answer->min - 1;
+        if (answer->max.has_value())
+            answer->max = answer->max.value() - 1;
 
-        if (answer->first.is_allowed_to_repeat()) {
+        if (answer->is_allowed_to_repeat()) {
             for (size_t i = 0 ; i < leafs ; i ++) {
                 for (auto root : lastest.get_roots()) {
                     lastest.get_leafs()[i]->connect_with(root, regex, answer);
@@ -57,14 +62,14 @@ namespace URLMatcher {
         return answer;
     }
 
-    template<typename UniqueMatchDataPtr, typename symbol_t>
+    template<typename RegexData, typename char_t>
     template<typename ConstIterator>
-    SubTree<Node<UniqueMatchDataPtr, symbol_t>> RegexMatcher<UniqueMatchDataPtr, symbol_t>::processSet(std::vector<Node<UniqueMatchDataPtr, symbol_t>*> parents, UniqueMatchDataPtr regex, ConstIterator& it) {
+    SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::processSet(std::vector<Node<RegexData, char_t>*> parents, RegexData regex, ConstIterator& it) {
         if (*it != '[') // not called at the beginning of a set
             throw std::logic_error("The iterator doesn't start from a set group.");
         else 
             it++;
-        std::vector<Node<UniqueMatchDataPtr, symbol_t>*> leafs;
+        std::vector<Node<RegexData, char_t>*> leafs;
         ConstIterator prev;
         bool takeTheNextSymbolLitterally = false;
         while(*it != ']') {
@@ -76,14 +81,14 @@ namespace URLMatcher {
                 else if (*it == '-') {
                     it ++;
                     for (char ch = ((*prev) + 1) ; ch <= *it ; ch ++) {
-                        Node<UniqueMatchDataPtr, symbol_t>* nextLeaf = nullptr;
+                        Node<RegexData, char_t>* nextLeaf = nullptr;
                         for (auto parent : parents)
                             if (parent->hasChild(ch)) {
                                 nextLeaf = parent->getChild(ch);
                                 break;
                             }
                         if (nextLeaf == nullptr) {
-                            nextLeaf = new Node<UniqueMatchDataPtr, symbol_t>(ch);
+                            nextLeaf = new Node<RegexData, char_t>(ch);
                         }
                         leafs.push_back(nextLeaf);
                     }
@@ -95,14 +100,14 @@ namespace URLMatcher {
             }
             if (takeTheNextSymbolLitterally)
             {
-                Node<UniqueMatchDataPtr, symbol_t>* nextLeaf = nullptr;
+                Node<RegexData, char_t>* nextLeaf = nullptr;
                 for (auto parent : parents)
                     if (parent->hasChild(*it)) {
                         nextLeaf = parent->getChild(*it);
                         break;
                     }
                 if (nextLeaf == nullptr) {
-                    nextLeaf = new Node<UniqueMatchDataPtr, symbol_t>(*it);
+                    nextLeaf = new Node<RegexData, char_t>(*it);
                 }
                 leafs.push_back(nextLeaf);
                 takeTheNextSymbolLitterally = false;
@@ -113,17 +118,17 @@ namespace URLMatcher {
         return {leafs, leafs};
     }
 
-    template<typename UniqueMatchDataPtr, typename symbol_t>
+    template<typename RegexData, typename char_t>
     template<typename ConstIterator>
-    SubTree<Node<UniqueMatchDataPtr, symbol_t>> RegexMatcher<UniqueMatchDataPtr, symbol_t>::process(std::vector<Node<UniqueMatchDataPtr, symbol_t>*> parents, UniqueMatchDataPtr regex, ConstIterator& it, ConstIterator end, const bool inBrackets) {
-        SubTree<Node<UniqueMatchDataPtr, symbol_t>> answer = {{}, {}};
-        std::vector<SubTree<Node<UniqueMatchDataPtr, symbol_t>>> nodeLayers = {{parents, parents}};
+    SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::process(std::vector<Node<RegexData, char_t>*> parents, RegexData regex, ConstIterator& it, ConstIterator end, const bool inBrackets) {
+        SubTree<Node<RegexData, char_t>> answer = {{}, {}};
+        std::vector<SubTree<Node<RegexData, char_t>>> nodeLayers = {{parents, parents}};
         for ( ; it != end ; it ++) {
             if (*it == ')' && inBrackets)
                 break;
             if (*it == '[') { // start of a set
                 const auto parents = nodeLayers.back();
-                SubTree<Node<UniqueMatchDataPtr, symbol_t>> newNodes = processSet(parents.get_leafs(), regex, it);
+                SubTree<Node<RegexData, char_t>> newNodes = processSet(parents.get_leafs(), regex, it);
                 for (auto parent : parents.get_leafs()) {
                     for (auto newNode : newNodes.get_leafs()) {
                         parent->connect_with(newNode, regex);
@@ -133,7 +138,7 @@ namespace URLMatcher {
             } 
             else if (*it == '(') { // start of a regex in brackets
                 it ++;
-                SubTree<Node<UniqueMatchDataPtr, symbol_t>> newLayer = process(nodeLayers.back().get_leafs(), regex, it, end, true); // leaves it at the closing bracket
+                SubTree<Node<RegexData, char_t>> newLayer = process(nodeLayers.back().get_leafs(), regex, it, end, true); // leaves it at the closing bracket
                 nodeLayers.push_back(newLayer);
             }
             else if (*it == '|') {
@@ -142,23 +147,23 @@ namespace URLMatcher {
                 nodeLayers.resize(1);
             }
             else if (*it == '{') {
-                Container<std::pair<Limits, size_t>>::const_iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
+                std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
             }
-            else if (auto special_regex = Node<UniqueMatchDataPtr, symbol_t>::special_symbols.find(*it); special_regex != Node<UniqueMatchDataPtr, symbol_t>::special_symbols.end()) {
+            else if (auto special_regex = Node<RegexData, char_t>::special_symbols.find(*it); special_regex != Node<RegexData, char_t>::special_symbols.end()) {
                 auto tmp_it = special_regex->second.cbegin();
-                Container<std::pair<Limits, size_t>>::const_iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
+                std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
             }
             else { // normal character
-                symbol<symbol_t> sym;
+                symbol<char_t> sym;
                 if (*it == '\\') { // skip escape symbol
                     it ++;
-                    sym = symbol<symbol_t>(*it);
+                    sym = symbol<char_t>(*it);
                 }
                 else if (*it == '.') 
-                    sym = symbol<symbol_t>::Any;
+                    sym = symbol<char_t>::Any;
                 else
-                    sym = symbol<symbol_t>(*it);
-                Node<UniqueMatchDataPtr, symbol_t>* nextNode = nullptr;
+                    sym = symbol<char_t>(*it);
+                Node<RegexData, char_t>* nextNode = nullptr;
                 for (auto parent : nodeLayers.back().get_leafs()) {
                     if (parent->neighbours.find(sym) != parent->neighbours.end()) {
                         nextNode = parent->neighbours[sym].to;
@@ -166,7 +171,7 @@ namespace URLMatcher {
                     }
                 }
                 if (nextNode == nullptr) {
-                    nextNode = new Node<UniqueMatchDataPtr, symbol_t>(sym);
+                    nextNode = new Node<RegexData, char_t>(sym);
                 }
                 for (auto parent : nodeLayers.back().get_leafs()) {
                     parent->connect_with(nextNode, regex);
@@ -177,8 +182,8 @@ namespace URLMatcher {
         answer.roots.insert(answer.roots.end(), nodeLayers[1].get_leafs().begin(), nodeLayers[1].get_leafs().end());
         answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(), nodeLayers.back().get_leafs().end());
         if (it == end) {
-            Node<UniqueMatchDataPtr, symbol_t>* end_of_regex = new Node<UniqueMatchDataPtr, symbol_t>(symbol<symbol_t>::EOR);
-            SubTree<Node<UniqueMatchDataPtr, symbol_t>> final_answer = {answer.get_roots(), {end_of_regex}};
+            Node<RegexData, char_t>* end_of_regex = new Node<RegexData, char_t>(symbol<char_t>::EOR);
+            SubTree<Node<RegexData, char_t>> final_answer = {answer.get_roots(), {end_of_regex}};
             for (auto parent : answer.leafs) {
                 parent->connect_with(end_of_regex, regex);
             }
@@ -187,4 +192,20 @@ namespace URLMatcher {
 
         return answer;
     }
+
+    template<typename RegexData, typename char_t>
+    template<typename Iterable>
+    void RegexMatcher<RegexData, char_t>::add_regex(Iterable str, RegexData uid) {
+        auto it = std::cbegin(str);
+        process(std::vector{&root}, uid, it, std::cend(str), false);
+    }
+
+    template<typename RegexData, typename char_t>
+    template<typename Iterable>
+    std::vector<RegexData> RegexMatcher<RegexData, char_t>::match(Iterable str) {
+        return root.match(std::cbegin(str), std::cend(str));
+    }
+
 }
+
+#endif
