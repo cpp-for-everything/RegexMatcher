@@ -2,6 +2,7 @@
 
 #include "RegexMatcherConfig.h"
 
+#include <set>
 #include <map>
 #include <list>
 #include <string>
@@ -259,6 +260,12 @@ namespace {
         template<typename ConstIterator>
         std::vector<RegexData> match_helper(ConstIterator, ConstIterator, const std::vector<RegexData>&, Node*);
 
+    #ifdef DEBUG
+        void print_helper(size_t layer, std::set<const Node<RegexData, char_t>*>& traversed, std::map<const Node<RegexData, char_t>*, std::string>& nodes) const;
+        
+        void print() const;
+    #endif
+
         friend class matcher::RegexMatcher<RegexData, char_t>;
     };
 
@@ -302,7 +309,7 @@ namespace matcher {
         RegexMatcher() {}
 
         /**
-         * @brief adds another regex to the set of regexes
+         * @brief Adds another regex to the set of regexes
          * 
          * @tparam Iterable Set of characters for the regex. Must implement std::cbegin and std::cend
          * @tparam RegexData Value that will be associated with the regex
@@ -311,13 +318,23 @@ namespace matcher {
         void add_regex(Iterable, RegexData);
 
         /**
-         * @brief matches a string with all added regexes
+         * @brief Matches a string with all added regexes
          * 
          * @tparam Iterable Set of characters. Must implement std::cbegin and std::cend
          * @return std::vector<RegexData> Set of regexes' UIDs that match the text
          */
         template<typename Iterable>
         std::vector<RegexData> match(Iterable);
+
+    #ifdef DEBUG
+        /**
+         * @brief Prints list of edges withing the pattern graph
+         * 
+         */
+        void print() const {
+            this->root.print();
+        }
+    #endif
     };
 }
 

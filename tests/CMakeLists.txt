@@ -1,6 +1,9 @@
-file(GLOB_RECURSE _SRCS "src/*.[hc]pp")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+   add_executable(demo "src/demo.cpp")
+   target_link_libraries(demo core)
+endif()
 
-add_executable(matcher-tests ${_SRCS})
+add_executable(matcher-tests "src/main.cpp")
 target_link_libraries(matcher-tests core)
 
 include(CTest)

@@ -150,6 +150,39 @@ namespace {
         }
         return std::move(answer);
     }
+    
+#ifdef DEBUG
+    template<typename RegexData, typename char_t>
+    void Node<RegexData, char_t>::print_helper(size_t layer, std::set<const Node<RegexData, char_t>*>& traversed, std::map<const Node<RegexData, char_t>*, std::string>& nodes) const {
+        if (traversed.find(this) != traversed.end())
+            return;
+        const std::basic_string<char_t> layer_str = (std::basic_stringstream<char_t>() << layer).str() + "_";
+        const std::basic_string<char_t> next_layer = (std::basic_stringstream<char_t>() << (layer + 1)).str() + "_";
+        traversed.emplace(this);
+        nodes.emplace(this, layer_str + current_symbol.to_string());
+        for (auto child : neighbours) {
+            if (nodes.find(child.second.to) == nodes.end()) {
+                nodes.emplace(child.second.to, next_layer + child.second.to->current_symbol.to_string());
+            }
+            std::cout << nodes[this] << " " << nodes[child.second.to] << " ";
+            std::cout << child.second.paths.begin()->first << Limits::to_string(child.second.paths.begin()->second);
+            for (auto it = std::next(child.second.paths.begin()) ; it != child.second.paths.end() ; it ++) {
+                std::cout << "," << it->first << Limits::to_string(it->second);
+            }
+            std::cout << std::endl;
+            if (nodes.find(child.second.to) != nodes.end()) {
+                child.second.to->print_helper(layer + 1, traversed, nodes);
+            }
+        }
+    }
+    
+    template<typename RegexData, typename char_t>
+    void Node<RegexData, char_t>::print() const {
+        std::set<const Node<RegexData, char_t>*> traversed;
+        std::map<const Node<RegexData, char_t>*, std::string> nodes;
+        print_helper(0, traversed, nodes);
+    }
+#endif
 }
 
 #endif
