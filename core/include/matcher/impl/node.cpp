@@ -44,12 +44,12 @@ namespace {
     }
 
     template<typename RegexData, typename char_t>
-    typename Node<RegexData, char_t>* Node<RegexData, char_t>::getChild(symbol<char_t> ch) {
+    Node<RegexData, char_t>* Node<RegexData, char_t>::getChild(symbol<char_t> ch) {
         return this->neighbours.find(ch)->second.to;
     }
 
     template<typename RegexData, typename char_t>
-    void Node<RegexData, char_t>::connect_with(typename Node<RegexData, char_t>* child, RegexData regex, std::optional<std::list<Limits>::iterator> limit) {
+    void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex, std::optional<std::list<Limits>::iterator> limit) {
         if (auto existing_child = neighbours.find(child->current_symbol); existing_child != neighbours.end()) {
             if (auto it = existing_child->second.paths.find(regex); it != existing_child->second.paths.end())
             {

@@ -10,6 +10,10 @@
 #include <optional>
 #include <sstream>
 
+#ifdef DEBUG
+#include <iostream>
+#endif
+
 /**
  * @brief Public classes of the library
  * 
