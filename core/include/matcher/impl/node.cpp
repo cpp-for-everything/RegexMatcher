@@ -106,10 +106,10 @@ namespace {
                             answer.push_back(pathId);
                         }
                     }
-                    return std::move(answer);
+                    return answer;
                 }
                 else 
-                    return std::move(potential_answer);
+                    return potential_answer;
             }
             return {};
         }
@@ -148,7 +148,7 @@ namespace {
                 }
             }
         }
-        return std::move(answer);
+        return answer;
     }
     
 #ifdef DEBUG
