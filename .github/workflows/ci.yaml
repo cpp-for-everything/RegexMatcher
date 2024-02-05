@@ -26,24 +26,30 @@ jobs:
         compiler:
           - llvm
           - gcc
-          - msvc
         generator:
           - "Ninja Multi-Config"
         build_type:
           - Release
           - Debug
 
-        exclude:
-          - os: ubuntu-22.04
+        include:
+          - os: windows-2019
             compiler: msvc
-          - os: ubuntu-20.04
+            CC_compiler: cl
+            CXX_compiler: cl
+
+          - os: windows-2022
             compiler: msvc
-          - os: macos-13
-            compiler: msvc
-          - os: macos-12
-            compiler: msvc
-          - os: macos-11
-            compiler: msvc
+            CC_compiler: cl
+            CXX_compiler: cl
+
+          - compiler: llvm
+            CC_compiler: clang
+            CXX_compiler: clang++
+            
+          - compiler: gcc
+            CC_compiler: gcc
+            CXX_compiler: g++
 
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +71,7 @@ jobs:
             ${{ runner.os }}-${{ env.BUILD_TYPE }}
 
       - name: Setup Cpp
-        uses: aminya/setup-cpp@v1
+        uses: aminya/setup-cpp@v0.36.2
         with:
           compiler: ${{ matrix.compiler }}
           vcvarsall: ${{ contains(matrix.os, 'windows' )}}
@@ -77,10 +83,11 @@ jobs:
           cppcheck: true
           gcovr: true
           opencppcoverage: true
+          clangtidy: true
 
       - name: Configure CMake
         run: |
-          cmake -S . -B ./build -G "${{matrix.generator}}" -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}}
+          CC=${CC_compiler} CXX=${CXX_compiler} cmake -S . -B ./build -G "${{matrix.generator}}" -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}}
 
       - name: Build
         # Execute the build.  You can specify a specific target with "--target <NAME>"
