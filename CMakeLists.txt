@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16.3)
 
-project(RegexMatcher VERSION 1.0.0.0)
+project(RegexMatcher VERSION 1.0.0.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
