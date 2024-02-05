@@ -91,13 +91,17 @@ namespace {
 
         static std::string to_string(std::optional<std::list<Limits>::iterator> it) {
             if (!it.has_value()) { return ""; }
-            if (!it.value()->max.has_value()) { return (std::stringstream() << "(" << it.value()->min << "+)").str(); }
-            return (std::stringstream() << "(" << it.value()->min << "..." << it.value()->max.value() << ")").str();
+            std::stringstream ss;
+            if (!it.value()->max.has_value()) { ss << "(" << it.value()->min << "+)"; }
+            else { ss << "(" << it.value()->min << "..." << it.value()->max.value() << ")"; }
+            return ss.str();
         }
 
         static std::string to_string(Limits a) {
-            if (!a.max.has_value()) { return (std::stringstream() << "(" << a.min << "+)").str(); }
-            return (std::stringstream() << "(" << a.min << "..." << a.max.value() << ")").str();
+            std::stringstream ss;
+            if (!a.max.has_value()) { ss << "(" << a.min << "+)"; }
+            else { ss << "(" << a.min << "..." << a.max.value() << ")"; }
+            return ss.str();
         }
 
         Limits& operator--() {
