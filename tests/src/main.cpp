@@ -44,7 +44,6 @@ int main(int argc, char** argv) {
             const auto answer = root.match(text);
             const auto t2 = high_resolution_clock::now();
             std::vector<int> test_result;
-            size_t ind = 0;
             for (size_t i = 0 ; i < regexes.size() ; i ++) {
                 if (std::regex_search(text, std::regex("^(" + regexes[i] + ")$"))) {
                     test_result.push_back(i);
@@ -72,7 +71,7 @@ int main(int argc, char** argv) {
             else {
                 bool failed = false;
                 for (size_t i = 0 ; i < answer.size() ; i ++) {
-                    if (failed = (failed || answer[i] != test_result[i])) {
+                    if ((failed = (failed || answer[i] != test_result[i]))) {
                     std::cout << "\t" << text << std::endl;
                         std::cout << "\t\t            Failed: " << answer[i] << ") " << regexes[answer[i] - 1] << " | " << test_result[i] << ") " << regexes[test_result[i] - 1] << std::endl;
                         return 1;

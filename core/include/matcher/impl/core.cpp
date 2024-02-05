@@ -64,7 +64,7 @@ namespace matcher {
 
     template<typename RegexData, typename char_t>
     template<typename ConstIterator>
-    SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::processSet(std::vector<Node<RegexData, char_t>*> parents, RegexData regex, ConstIterator& it) {
+    SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::processSet(std::vector<Node<RegexData, char_t>*> parents, [[maybe_unused]] RegexData regex, ConstIterator& it) {
         if (*it != '[') // not called at the beginning of a set
             throw std::logic_error("The iterator doesn't start from a set group.");
         else 
@@ -147,11 +147,11 @@ namespace matcher {
                 nodeLayers.resize(1);
             }
             else if (*it == '{') {
-                std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
+                [[maybe_unused]] std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
             }
             else if (auto special_regex = Node<RegexData, char_t>::special_symbols.find(*it); special_regex != Node<RegexData, char_t>::special_symbols.end()) {
                 auto tmp_it = special_regex->second.cbegin();
-                std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
+                [[maybe_unused]]std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
             }
             else { // normal character
                 symbol<char_t> sym;
