@@ -6,9 +6,6 @@ endif()
 add_executable(matcher-tests "src/main.cpp")
 target_link_libraries(matcher-tests core)
 
-include(CTest)
-enable_testing()
-
 add_test(NAME matcher-test-no-regex
          COMMAND $<TARGET_FILE:matcher-tests>
          --add "text1" "text2" "text3"
@@ -133,5 +130,5 @@ add_test(NAME matcher-tests-many-regexes-many-matches
             "ddefdefg"
 )
 
-add_custom_target(test ALL COMMAND ${CMAKE_CTEST_COMMAND} -C ${CMAKE_BUILD_TYPE} --output-on-failure
+add_custom_target(tests COMMAND ${CMAKE_CTEST_COMMAND} -C ${CMAKE_BUILD_TYPE} --output-on-failure
                   DEPENDS matcher-tests)
