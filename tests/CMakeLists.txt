@@ -130,5 +130,5 @@ add_test(NAME matcher-tests-many-regexes-many-matches
             "ddefdefg"
 )
 
-add_custom_target(test ALL COMMAND ${CMAKE_CTEST_COMMAND} -C Debug --output-on-failure
+add_custom_target(tests COMMAND ${CMAKE_CTEST_COMMAND} -C ${CMAKE_BUILD_TYPE} --output-on-failure
                   DEPENDS matcher-tests)
