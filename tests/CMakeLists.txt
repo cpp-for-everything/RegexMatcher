@@ -6,9 +6,6 @@ endif()
 add_executable(matcher-tests "src/main.cpp")
 target_link_libraries(matcher-tests core)
 
-include(CTest)
-enable_testing()
-
 add_test(NAME matcher-test-no-regex
          COMMAND $<TARGET_FILE:matcher-tests>
          --add "text1" "text2" "text3"

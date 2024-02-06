@@ -15,4 +15,7 @@ endif()
 
 configure_file(RegexMatcherConfig.h.in ${CMAKE_BINARY_DIR}/config/RegexMatcherConfig.h)
 add_subdirectory(core)
+
+include(CTest)
+enable_testing()
 add_subdirectory(tests)
