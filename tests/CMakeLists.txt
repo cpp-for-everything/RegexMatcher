@@ -1,10 +1,10 @@
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
    add_executable(demo "src/demo.cpp")
-   target_link_libraries(demo core)
+   target_link_libraries(demo regexmatcher_core)
 endif()
 
 add_executable(matcher-tests "src/main.cpp")
-target_link_libraries(matcher-tests core)
+target_link_libraries(matcher-tests regexmatcher_core)
 
 add_test(NAME matcher-test-no-regex
          COMMAND $<TARGET_FILE:matcher-tests>
