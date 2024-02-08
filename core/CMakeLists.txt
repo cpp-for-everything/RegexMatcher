@@ -9,3 +9,5 @@ target_include_directories(core PUBLIC include ${CMAKE_BINARY_DIR}/config)
 
 install(TARGETS core DESTINATION lib)
 install(FILES ${_HDRS} ${CMAKE_BINARY_DIR}/config/RegexMatcherConfig.h DESTINATION include/matcher)
+
+add_library(RegexMatcher::core ALIAS core)
