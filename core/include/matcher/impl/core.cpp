@@ -127,9 +127,9 @@ namespace matcher {
             if (*it == ')' && inBrackets)
                 break;
             if (*it == '[') { // start of a set
-                const auto parents = nodeLayers.back();
-                SubTree<Node<RegexData, char_t>> newNodes = processSet(parents.get_leafs(), regex, it);
-                for (auto parent : parents.get_leafs()) {
+                const auto latest_parents = nodeLayers.back();
+                SubTree<Node<RegexData, char_t>> newNodes = processSet(latest_parents.get_leafs(), regex, it);
+                for (auto parent : latest_parents.get_leafs()) {
                     for (auto newNode : newNodes.get_leafs()) {
                         parent->connect_with(newNode, regex);
                     }
