@@ -6,6 +6,12 @@ endif()
 add_executable(matcher-tests "src/main.cpp")
 target_link_libraries(matcher-tests regexmatcher_core)
 
+add_test(NAME matcher-urls
+         COMMAND $<TARGET_FILE:matcher-tests>
+         --add "/" "\\/([0-9a-z-]+)"
+         --match "/" "/12asdf-"
+)
+
 add_test(NAME matcher-test-no-regex
          COMMAND $<TARGET_FILE:matcher-tests>
          --add "text1" "text2" "text3"
