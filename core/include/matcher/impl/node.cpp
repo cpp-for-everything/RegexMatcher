@@ -58,7 +58,7 @@ namespace {
                 }
                 else if (it->second.has_value() && limit == std::nullopt) {
                     (it->second.value()->min) ++;
-                    if (it->second.has_value()) {
+                    if (it->second.value()->max.has_value()) {
                         (it->second.value()->max.value()) ++;
                     }
                 }
