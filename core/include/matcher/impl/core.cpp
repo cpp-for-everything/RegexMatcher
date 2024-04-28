@@ -72,7 +72,7 @@ namespace matcher {
         std::vector<Node<RegexData, char_t>*> leafs;
         ConstIterator prev;
         bool takeTheNextSymbolLitterally = false;
-        while(*it != ']') {
+        while(*it != ']' || takeTheNextSymbolLitterally) {
             if (!takeTheNextSymbolLitterally) {
                 if (*it == '\\') { // escape symbol is always followed by a reglar character
                     it ++; // so it is included no matter what

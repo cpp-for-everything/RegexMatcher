@@ -8,7 +8,7 @@ target_link_libraries(matcher-tests regexmatcher_core)
 
 add_test(NAME matcher-urls
          COMMAND $<TARGET_FILE:matcher-tests>
-         --add "/" "\\/([0-9a-z-]+)"
+         --add "/" "\\/([0-9a-z\\-]+)"
          --match "/" "/12asdf-"
 )
 
