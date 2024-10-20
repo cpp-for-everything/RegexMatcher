@@ -1,3 +1,13 @@
+# Add the test executable
+add_executable(playground
+   playground.cpp
+)
+
+# Link Google Test and the library under test
+target_link_libraries(playground PRIVATE
+   RegexMatcher::core
+)
+
 include(CTest)
 enable_testing()
 
