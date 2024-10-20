@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.16.3)
 
-project(RegexMatcher VERSION 1.0.0.1)
+project(RegexMatcher VERSION 1.0.0.2)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_definitions(-DDEBUG)
 endif()
@@ -14,7 +15,7 @@ if(NOT DEFINED CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT OR CMAKE_INSTALL_PREF
 endif()
 
 configure_file(RegexMatcherConfig.h.in ${CMAKE_BINARY_DIR}/config/RegexMatcherConfig.h)
-add_subdirectory(core)
+add_subdirectory(lib)
 
 include(CTest)
 enable_testing()
