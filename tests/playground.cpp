@@ -19,7 +19,7 @@ int main(int argc, char** argv)
 	{
 		std::cout << "Adding " << x << std::endl;
 		root.add_regex(std::string(x), num++);
-		root.print();
+		// root.print();
 		std::cout << "Answers:" << std::endl;
 		const auto answer = root.match(std::string("dabcg"));
 		for (auto x : answer)
