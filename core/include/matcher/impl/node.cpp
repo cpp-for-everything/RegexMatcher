@@ -66,7 +66,14 @@ namespace
 			if (!this->hasChild(it->first))
 			{
 				this->neighbours.insert(with->neighbours.extract(it));
-				it = with->neighbours.begin();
+				if (with->neighbours.size() == 0)
+				{
+					break;
+				}
+				else
+				{
+					it = with->neighbours.begin();
+				}
 			}
 			else if (it->second.to)
 			{
@@ -75,8 +82,18 @@ namespace
 				Node* old_child = it->second.to;
 				it->second.to = nullptr;
 				with->neighbours.erase(it);
-				it = with->neighbours.begin();
-				this->getChild(current_child.to->current_symbol)->absorb(old_child);
+				if (current_child.to != nullptr)
+				{
+					this->getChild(current_child.to->current_symbol)->absorb(old_child);
+				}
+				if (with->neighbours.size() == 0)
+				{
+					break;
+				}
+				else
+				{
+					it = with->neighbours.begin();
+				}
 			}
 		}
 
