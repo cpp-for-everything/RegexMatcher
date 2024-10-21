@@ -2,6 +2,7 @@
 #define NODE_IMPL
 
 #include <matcher/core.hpp>
+#include <stack>
 
 namespace
 {
@@ -38,12 +39,12 @@ namespace
 		return answer;
 	}
 
-	template <typename RegexData, typename char_t> std::list<Limits> Node<RegexData, char_t>::all_limits = std::list<Limits>();
+	template <typename RegexData, typename char_t> std::list<Limits*> Node<RegexData, char_t>::all_limits = std::list<Limits*>();
 
 	template <typename RegexData, typename char_t>
 	std::map<symbol<char_t>, std::string> Node<RegexData, char_t>::special_symbols = {{'+', "{1,}"}, {'*', "{0,}"}, {'?', "{0,1}"}};
 
-	template <typename RegexData, typename char_t> bool Node<RegexData, char_t>::hasChild(symbol<char_t> ch)
+	template <typename RegexData, typename char_t> bool Node<RegexData, char_t>::hasChild(symbol<char_t> ch) const
 	{
 		return (this->neighbours.find(ch) != this->neighbours.end());
 	}
@@ -53,32 +54,94 @@ namespace
 		return this->neighbours.find(ch)->second.to;
 	}
 
-	template <typename RegexData, typename char_t> void Node<RegexData, char_t>::merge(Node<RegexData, char_t>* with)
+	template <typename RegexData, typename char_t> void Node<RegexData, char_t>::absorb(Node<RegexData, char_t>* with)
 	{
 		if (with == nullptr)
 		{
 			return;
 		}
-		// reattach its children to the root and then connect it
-		for (auto incoming_neighbours : with->neighbours)
+
+		for (auto it = with->neighbours.begin(); it != with->neighbours.end();)
 		{
-			if (this->hasChild(incoming_neighbours.first))
+			if (!this->hasChild(it->first))
 			{
-				for (auto path : incoming_neighbours.second.paths)
-				{
-					this->neighbours[incoming_neighbours.first].paths.emplace(path);
-				}
-				this->neighbours[incoming_neighbours.first].to->merge(incoming_neighbours.second.to);
+				this->neighbours.insert(with->neighbours.extract(it));
+				it = with->neighbours.begin();
 			}
-			else
+			else if (it->second.to)
 			{
-				this->neighbours.emplace(incoming_neighbours);
+				auto& current_child = this->neighbours[it->first];
+				this->neighbours[it->first].paths.merge(it->second.paths);
+				Node* old_child = it->second.to;
+				it->second.to = nullptr;
+				with->neighbours.erase(it);
+				it = with->neighbours.begin();
+				this->getChild(current_child.to->current_symbol)->absorb(old_child);
 			}
 		}
+
+		std::stack<Node<RegexData, char_t>*> st;
+		std::set<Node<RegexData, char_t>*> visited;
+		st.push(with);
+		while (!st.empty())
+		{
+			Node<RegexData, char_t>* top = st.top();
+			st.pop();
+			if (visited.find(top) != visited.end())
+			{
+				continue;
+			}
+			visited.insert(top);
+			for (auto& old_neighbours : top->neighbours)
+			{
+				if (old_neighbours.second.to == with)
+				{
+					old_neighbours.second.to = this;
+				}
+				else
+				{
+					st.push(old_neighbours.second.to);
+				}
+			}
+		}
+
+		// delete with;
+
+		// std::stack<std::pair<Node<RegexData, char_t>*, Node<RegexData, char_t>* const>> st;
+		// std::vector<Node<RegexData, char_t>* const> to_delete;
+		// st.push({this, with});
+		// while (!st.empty())
+		//{
+		//	auto el = st.top();
+		//	st.pop();
+		//	// reattach its children to the root and then connect it
+		//	for (const auto& incoming_neighbours : el.second->neighbours)
+		//	{
+		//		if (el.first->hasChild(incoming_neighbours.first))
+		//		{
+		//			auto it = el.first->neighbours.find(incoming_neighbours.first)->second;
+		//			st.push({it.to, incoming_neighbours.second.to});
+		//			to_delete.push_back(incoming_neighbours.second.to);
+		//			for (const auto& x : incoming_neighbours.second.paths)
+		//			{
+		//				it.paths.emplace(x);
+		//			}
+		//		}
+		//		else
+		//		{
+		//			el.first->neighbours.emplace(incoming_neighbours);
+		//		}
+		//	}
+		//	el.second->neighbours.clear();
+		// }
+		// for (auto x : to_delete)
+		//{
+		//	delete x;
+		// }
 	}
 
 	template <typename RegexData, typename char_t>
-	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex, std::optional<std::list<Limits>::iterator> limit)
+	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex, std::optional<Limits*> limit)
 	{
 		if (auto existing_child = neighbours.find(child->current_symbol); existing_child != neighbours.end())
 		{
@@ -86,7 +149,9 @@ namespace
 			{
 				if (!it->second.has_value() && limit == std::nullopt)
 				{
-					it->second = Node<RegexData, char_t>::all_limits.insert(Node<RegexData, char_t>::all_limits.end(), Limits(1, 1));
+					auto limit = new Limits(1, 1);
+					Node<RegexData, char_t>::all_limits.push_back(limit);
+					it->second = limit;
 				}
 				else if (it->second.has_value() && limit == std::nullopt)
 				{
@@ -99,8 +164,9 @@ namespace
 			}
 			else if (this == child && limit == std::nullopt)
 			{
-				neighbours[child->current_symbol].paths.emplace(
-					regex, Node<RegexData, char_t>::all_limits.insert(Node<RegexData, char_t>::all_limits.end(), Limits(1, 1)));
+				auto new_limit = new Limits(1, 1);
+				Node<RegexData, char_t>::all_limits.push_back(new_limit);
+				neighbours[child->current_symbol].paths.emplace(regex, new_limit);
 			}
 			else
 			{

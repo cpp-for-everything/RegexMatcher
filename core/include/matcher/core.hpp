@@ -98,7 +98,7 @@ namespace
 		static const Limits once_or_more;
 		static const Limits zero_or_more;
 
-		static std::string to_string(std::optional<std::list<Limits>::iterator> it)
+		static std::string to_string(std::optional<Limits*> it)
 		{
 			if (!it.has_value())
 			{
@@ -161,9 +161,25 @@ namespace
 
 	template <typename T, typename Node> struct EdgeInfo
 	{
-		std::map<T, std::optional<std::list<Limits>::iterator>>
-			paths; // each path may have different requirements for how many times should the edge be repeated.
+		std::map<T, std::optional<Limits*>> paths; // each path may have different requirements for how many times should the edge be repeated.
 		Node* to;
+		EdgeInfo() = default;
+		EdgeInfo(const EdgeInfo& info)
+		{
+			for (auto x : info.paths)
+			{
+				if (x.second.has_value())
+				{
+					paths[x.first] = x.second;
+				}
+				else
+				{
+					paths[x.first] = std::nullopt;
+				}
+			}
+			to = info.to;
+		}
+		EdgeInfo(EdgeInfo&&) = delete;
 	};
 
 	template <typename char_t> struct symbol
@@ -235,9 +251,10 @@ namespace
 	template <typename RegexData, typename char_t> class Node
 	{
 		friend class matcher::RegexMatcher<RegexData, char_t>;
+		friend class EdgeInfo<RegexData, char_t>;
 
 		static std::map<symbol<char_t>, std::string> special_symbols;
-		static std::list<Limits> all_limits;
+		static std::list<Limits*> all_limits;
 
 		/**
 		 * @brief All directly connected nodes
@@ -293,7 +310,7 @@ namespace
 		 *
 		 * @param with Node which's children are being attached to this
 		 */
-		void merge(Node<RegexData, char_t>* with);
+		void absorb(Node<RegexData, char_t>* with);
 
 		/**
 		 * @brief Checks if there is a node with a given symbol in the neighbour list
@@ -302,7 +319,7 @@ namespace
 		 * @return true if a node with this symbol is direct neighbour to this node
 		 * @return false if there is no node with this symbol as direct neighbour to this node
 		 */
-		bool hasChild(symbol<char_t> ch);
+		bool hasChild(symbol<char_t> ch) const;
 
 		/**
 		 * @brief Get the Child object with the given symbol
@@ -319,7 +336,7 @@ namespace
 		 * @param regex  Regex data that is being used to indentify the regex that the edge is part of
 		 * @param limits Pointer to the shared limit of the edge (nullptr if no limit is applied)
 		 */
-		void connect_with(Node<RegexData, char_t>* child, RegexData regex, std::optional<std::list<Limits>::iterator> limits = std::nullopt);
+		void connect_with(Node<RegexData, char_t>* child, RegexData regex, std::optional<Limits*> limits = std::nullopt);
 
 		/**
 		 * @brief Matches a string with all regexes and returns the identified of the one that matches
@@ -338,8 +355,6 @@ namespace
 
 		void print() const;
 #endif
-
-		friend class matcher::RegexMatcher<RegexData, char_t>;
 	};
 
 	template <typename Node_T> class SubTree
@@ -371,7 +386,7 @@ namespace matcher
 		Node<RegexData, char_t> root;
 
 		template <typename ConstIterator>
-		static std::list<Limits>::iterator processLimit(const SubTree<Node<RegexData, char_t>>&, SubTree<Node<RegexData, char_t>>&, RegexData, ConstIterator&);
+		static Limits* processLimit(const SubTree<Node<RegexData, char_t>>&, SubTree<Node<RegexData, char_t>>&, RegexData, ConstIterator&);
 
 		template <typename ConstIterator> static SubTree<Node<RegexData, char_t>> processSet(std::vector<Node<RegexData, char_t>*>, RegexData, ConstIterator&);
 
