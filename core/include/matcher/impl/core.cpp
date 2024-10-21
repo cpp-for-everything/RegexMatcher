@@ -82,11 +82,6 @@ namespace matcher
 					// if another child with same symbol exists
 					if (lastest.get_leafs()[i]->hasChild(root->current_symbol) && lastest.get_leafs()[i]->neighbours[root->current_symbol].to != root)
 					{
-						std::cout << "Absorb time:" << std::endl;
-						std::cout << "current tree:" << std::endl;
-						lastest.get_leafs()[i]->print();
-						std::cout << "current tree:" << std::endl;
-						root->print();
 						Node<RegexData, char_t>* old_child = lastest.get_leafs()[i]->neighbours[root->current_symbol].to;
 						root->absorb(old_child);
 						lastest.get_leafs()[i]->neighbours[root->current_symbol].to = root;
