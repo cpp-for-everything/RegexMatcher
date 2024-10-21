@@ -10,7 +10,7 @@ namespace matcher
 
 	template <typename RegexData, typename char_t>
 	template <typename ConstIterator>
-	std::list<Limits>::iterator RegexMatcher<RegexData, char_t>::processLimit(
+	Limits* RegexMatcher<RegexData, char_t>::processLimit(
 		const SubTree<Node<RegexData, char_t>>& parent_of_latest, SubTree<Node<RegexData, char_t>>& lastest, RegexData regex, ConstIterator& it)
 	{
 		if (*it != '{') // not called at the beginning of a set
@@ -22,7 +22,9 @@ namespace matcher
 			it++;
 		}
 
-		std::list<Limits>::iterator answer = Node<RegexData, char_t>::all_limits.insert(Node<RegexData, char_t>::all_limits.end(), Limits::common_edge);
+		auto answer = new Limits(Limits::common_edge);
+		Node<RegexData, char_t>::all_limits.push_back(answer);
+
 		bool min = true;
 		size_t number = 0;
 
@@ -78,10 +80,15 @@ namespace matcher
 				for (auto root : lastest.get_roots())
 				{
 					// if another child with same symbol exists
-					if (lastest.get_leafs()[i]->hasChild(root->current_symbol))
+					if (lastest.get_leafs()[i]->hasChild(root->current_symbol) && lastest.get_leafs()[i]->neighbours[root->current_symbol].to != root)
 					{
-						root->merge(lastest.get_leafs()[i]->neighbours[root->current_symbol].to);
-						delete lastest.get_leafs()[i]->neighbours[root->current_symbol].to;
+						std::cout << "Absorb time:" << std::endl;
+						std::cout << "current tree:" << std::endl;
+						lastest.get_leafs()[i]->print();
+						std::cout << "current tree:" << std::endl;
+						root->print();
+						Node<RegexData, char_t>* old_child = lastest.get_leafs()[i]->neighbours[root->current_symbol].to;
+						root->absorb(old_child);
 						lastest.get_leafs()[i]->neighbours[root->current_symbol].to = root;
 					}
 					lastest.get_leafs()[i]->connect_with(root, regex, answer);
@@ -208,12 +215,12 @@ namespace matcher
 			}
 			else if (*it == '{')
 			{
-				[[maybe_unused]] std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
+				[[maybe_unused]] Limits* limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
 			}
 			else if (auto special_regex = Node<RegexData, char_t>::special_symbols.find(*it); special_regex != Node<RegexData, char_t>::special_symbols.end())
 			{
 				auto tmp_it = special_regex->second.cbegin();
-				[[maybe_unused]] std::list<Limits>::iterator limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
+				[[maybe_unused]] Limits* limits = processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
 			}
 			else
 			{ // normal character

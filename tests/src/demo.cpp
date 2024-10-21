@@ -14,14 +14,18 @@ int main(int argc, char** argv)
 			  << RegexMatcher_VERSION_TWEAK << std::endl;
 
 	matcher::RegexMatcher<int, char> root;
-	root.add_regex(std::string("[a-c]+"), 0);
-	root.print();
-	root.add_regex(std::string("abc"), 1);
-	root.print();
-	const auto answer = root.match(std::string("abc"));
-	for (auto x : answer)
+	int num = 0;
+	for (auto x : {"dabcg", "d[a-c][a-c][a-c]g+", "d[a-c]{3,3}g+"})
 	{
-		std::cout << x << std::endl;
+		std::cout << "Adding " << x << std::endl;
+		root.add_regex(std::string(x), num++);
+		root.print();
+		std::cout << "Answers:" << std::endl;
+		const auto answer = root.match(std::string("dabcg"));
+		for (auto x : answer)
+		{
+			std::cout << x << std::endl;
+		}
 	}
 	return 0;
 }
