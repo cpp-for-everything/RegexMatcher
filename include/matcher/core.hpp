@@ -251,7 +251,7 @@ namespace
 	template <typename RegexData, typename char_t> class Node
 	{
 		friend class matcher::RegexMatcher<RegexData, char_t>;
-		friend class EdgeInfo<RegexData, char_t>;
+		friend struct EdgeInfo<RegexData, char_t>;
 
 		static std::map<symbol<char_t>, std::string> special_symbols;
 		static std::list<Limits*> all_limits;
