@@ -1,24 +1,13 @@
-# Add the test executable
-add_executable(playground
-   playground.cpp
-)
-
-# Link Google Test and the library under test
-target_link_libraries(playground PRIVATE
-   RegexMatcher::core
-)
-
-include(CTest)
+# Enable testing
 enable_testing()
 
-# Download and include Google Test
+# Find or fetch Google Test
 include(FetchContent)
+
 FetchContent_Declare(
-   googletest
-   URL https://github.com/google/googletest/archive/refs/heads/main.zip
-   DOWNLOAD_EXTRACT_TIMESTAMP true
+   gtest
+   URL https://github.com/google/googletest/archive/refs/tags/release-1.12.1.zip
 )
-FetchContent_MakeAvailable(googletest)
 
 if(CMAKE_C_COMPILER_ID MATCHES "(Apple)?[Cc]lang" OR CMAKE_CXX_COMPILER_ID MATCHES "(Apple)?[Cc]lang"
    OR CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
@@ -29,22 +18,34 @@ if(CMAKE_C_COMPILER_ID MATCHES "(Apple)?[Cc]lang" OR CMAKE_CXX_COMPILER_ID MATCH
    add_code_coverage_all_targets(EXCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../tests/*)
 endif()
 
-# Register the test with CTest
-include(GoogleTest)
+# Prevent GoogleTest from overriding standard CMake variables
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(gtest)
 
-add_executable(all_tests
-   main.cpp
+# Add test executable
+add_executable(tests main.cpp)
+target_include_directories(
+   tests
+   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
 )
-
-# Link Google Test and the library under test
-target_link_libraries(all_tests PRIVATE
+target_link_libraries(tests
+   PRIVATE
+   regexmatcher_core
+   gtest
    gtest_main
-   RegexMatcher::core
 )
 
-gtest_discover_tests(all_tests)
+# Add tests
+include(GoogleTest)
+gtest_discover_tests(tests)
 
 if(CMAKE_C_COMPILER_ID MATCHES "(Apple)?[Cc]lang" OR CMAKE_CXX_COMPILER_ID MATCHES "(Apple)?[Cc]lang"
    OR CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-   target_code_coverage(all_tests AUTO ALL EXCLUDE tests/*)
+   target_code_coverage(tests AUTO ALL EXCLUDE tests/*)
 endif()
+
+# Optional: Install test executable
+install(
+   TARGETS tests
+   RUNTIME DESTINATION bin
+)
