@@ -30,7 +30,7 @@ target_include_directories(
 )
 target_link_libraries(tests
    PRIVATE
-   regexmatcher_core
+   RegexMatcher
    gtest
    gtest_main
 )
