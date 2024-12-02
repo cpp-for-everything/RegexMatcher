@@ -1,9 +1,0 @@
-@PACKAGE_INIT@
-
-include(CMakeFindDependencyMacro)
-
-# Include the exported targets
-include("${CMAKE_CURRENT_LIST_DIR}/RegexMatcherTargets.cmake")
-
-# Set up the namespace for the target
-set(${PACKAGE_NAME}_FOUND TRUE)

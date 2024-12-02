@@ -1,0 +1,5 @@
+# Import the targets.
+include("@RegexMatcher_BINARY_DIR@/RegexMatcher-targets.cmake")
+
+# Report other information.
+set(RegexMatcher_INCLUDE_DIRS "@RegexMatcher_SOURCE_DIR@")

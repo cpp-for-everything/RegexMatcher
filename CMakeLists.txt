@@ -7,51 +7,38 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Define installation prefix
-if(NOT CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "" FORCE)
-endif()
-
 # Debug flag
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_definitions(-DDEBUG)
 endif()
 
-# Config header
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/RegexMatcherConfig.h.in ${CMAKE_CURRENT_SOURCE_DIR}/include/matcher/RegexMatcherConfig.h)
-
 # Add subdirectories
 add_subdirectory(include)
 add_subdirectory(tests)
 
-# Package configuration
-include(CMakePackageConfigHelpers)
-
-set(CONFIG_INSTALL_DIR "lib/cmake/${PROJECT_NAME}")
-
-configure_package_config_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/RegexMatcherConfig.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/RegexMatcherConfig.cmake
-  INSTALL_DESTINATION ${CONFIG_INSTALL_DIR}
+# Install and export the targets.
+install(TARGETS RegexMatcher
+  DESTINATION lib/RegexMatcher-${PROJECT_VERSION}
+  EXPORT RegexMatcher-targets
+  FILE_SET regex_matcher_headers
 )
+install(EXPORT RegexMatcher-targets
+  DESTINATION lib/RegexMatcher-${PROJECT_VERSION})
 
-write_basic_package_version_file(
-  ${CMAKE_CURRENT_BINARY_DIR}/RegexMatcherConfigVersion.cmake
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMajorVersion
-)
+# Create and install package configuration and version files.
+configure_file(
+  ${RegexMatcher_SOURCE_DIR}/pkg/RegexMatcher-config.cmake.in
+  ${RegexMatcher_BINARY_DIR}/pkg/RegexMatcher-config.cmake @ONLY)
 
-install(
-  FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/RegexMatcherConfig.cmake
-  ${CMAKE_CURRENT_BINARY_DIR}/RegexMatcherConfigVersion.cmake
-  DESTINATION ${CONFIG_INSTALL_DIR}
-)
+configure_file(
+  ${RegexMatcher_SOURCE_DIR}/RegexMatcher-config-version.cmake.in
+  ${RegexMatcher_BINARY_DIR}/RegexMatcher-config-version.cmake @ONLY)
 
-# Export targets
-install(
-  EXPORT RegexMatcherTargets
-  FILE RegexMatcherTargets.cmake
-  NAMESPACE RegexMatcher::
-  DESTINATION ${CONFIG_INSTALL_DIR}
-)
+install(FILES ${RegexMatcher_BINARY_DIR}/pkg/RegexMatcher-config.cmake
+  ${RegexMatcher_BINARY_DIR}/RegexMatcher-config-version.cmake
+  DESTINATION lib/RegexMatcher-${PROJECT_VERSION})
+
+# Make project usable from build tree.
+export(TARGETS RegexMatcher FILE RegexMatcher-targets.cmake)
+configure_file(${RegexMatcher_SOURCE_DIR}/RegexMatcher-config.cmake.in
+  ${RegexMatcher_BINARY_DIR}/RegexMatcher-config.cmake @ONLY)
