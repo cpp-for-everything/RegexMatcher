@@ -90,7 +90,7 @@ jobs:
         run: |
           cmake --build build
           cd build
-          ctest -C Release
+          ctest -C Release --test-dir build/tests
 
       - name: Annotate warnings and errors without duplicates
         if: ${{ always() }}
