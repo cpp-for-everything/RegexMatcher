@@ -1,13 +1,7 @@
+cmake_minimum_required(VERSION 3.16.3)
+
 # Enable testing
 enable_testing()
-
-# Find or fetch Google Test
-include(FetchContent)
-
-FetchContent_Declare(
-   gtest
-   URL https://github.com/google/googletest/archive/refs/tags/release-1.12.1.zip
-)
 
 if(CMAKE_C_COMPILER_ID MATCHES "(Apple)?[Cc]lang" OR CMAKE_CXX_COMPILER_ID MATCHES "(Apple)?[Cc]lang"
    OR CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
@@ -20,7 +14,6 @@ endif()
 
 # Prevent GoogleTest from overriding standard CMake variables
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(gtest)
 
 # Add test executable
 add_executable(tests main.cpp)

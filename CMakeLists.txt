@@ -13,6 +13,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 # Add subdirectories
+add_subdirectory(external)
 add_subdirectory(include)
 add_subdirectory(tests)
 
