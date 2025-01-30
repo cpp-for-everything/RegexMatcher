@@ -88,8 +88,6 @@ jobs:
       - name: Run tests
         if: ${{ steps.build_project.outcome == 'success' }}
         run: |
-          cmake --build build
-          cd build
           ctest -C Release --test-dir build/tests
 
       - name: Annotate warnings and errors without duplicates
