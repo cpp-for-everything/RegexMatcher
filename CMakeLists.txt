@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16.3)
 
-project(RegexMatcher VERSION 1.0.0.0 LANGUAGES CXX)
+project(RegexMatcher VERSION 1.0.0.2 LANGUAGES CXX)
 
 # Set C++ Standard
 set(CMAKE_CXX_STANDARD 17)
