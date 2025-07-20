@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below:"
+authors:
+  - family-names: Stankov
+    given-names: Ivan
+  - family-names: Tsvetanov
+    given-names: Alex
+title: "RegexMatcher: Matching Text Against Multiple Regular Expressions"
+version: 1.0.0
+doi: 10.1109/TELECOM63374.2024.10812214
+date-released: 2024-06-01
+url: https://github.com/cpp-for-everything/RegexMatcher
