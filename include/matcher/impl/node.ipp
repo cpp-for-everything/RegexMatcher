@@ -1,7 +1,9 @@
-#ifndef NODE_IMPL
-#define NODE_IMPL
+/**
+ * @file node.ipp
+ * @brief Template implementation for Node class
+ * @note This file is included by core.hpp - do not include directly
+ */
 
-#include <matcher/core.hpp>
 #include <stack>
 
 namespace {
@@ -454,6 +456,4 @@ namespace {
 		print_helper(0, traversed, nodes);
 	}
 #endif
-}  // namespace
-
-#endif
+}  // anonymous namespace

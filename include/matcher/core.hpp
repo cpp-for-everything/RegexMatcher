@@ -137,22 +137,6 @@ namespace {
 	};
 
 	/**
-	 * @brief Simulation state for tagged NFA traversal
-	 * Bundles all state needed during matching
-	 */
-	template <typename RegexData>
-	struct SimulationState {
-		std::vector<RegexData> active_paths;         // Currently active regex paths
-		std::map<RegexData, CaptureSlots> captures;  // Capture slots per regex
-
-		SimulationState() = default;
-		SimulationState(const SimulationState&) = default;
-		SimulationState& operator=(const SimulationState&) = default;
-		SimulationState(SimulationState&&) = default;
-		SimulationState& operator=(SimulationState&&) = default;
-	};
-
-	/**
 	 * @brief Class containing the list of regexes using the given edge
 	 *
 	 * @tparam T type of the reference to the match data
@@ -473,8 +457,8 @@ namespace {
 	};
 }  // namespace
 
-#include <matcher/impl/subtree.cpp>
-#include <matcher/impl/node.cpp>
+#include <matcher/impl/subtree.ipp>
+#include <matcher/impl/node.ipp>
 
 namespace matcher {
 	template <typename RegexData, typename char_t>
@@ -538,4 +522,4 @@ namespace matcher {
 	};
 }  // namespace matcher
 
-#include <matcher/impl/core.cpp>
+#include <matcher/impl/core.ipp>
