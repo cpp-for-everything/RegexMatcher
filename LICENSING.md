@@ -1,5 +1,7 @@
 # RegexMatcher License Agreement
 
+Copyright (C) 2025 Alex Tsvetanov
+
 RegexMatcher is available under different licensing options designed to meet the diverse needs of our users:
 
 ## Commercial License
@@ -35,6 +37,7 @@ RegexMatcher is also available under the **GNU General Public License version 3 
 Please be aware that RegexMatcher may include third-party components, which are subject to their own licensing terms. You are responsible for ensuring compliance with any third-party licenses.
 
 ## Full Text of GNU GPLv3
+
 ```
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
@@ -658,9 +661,10 @@ copy of the Program in return for a fee.
 
                      END OF TERMS AND CONDITIONS
 ```
+
 ## Contact Information
 
 For questions, support, or to obtain a commercial license for RegexMatcher, please contact:
 
 - **Email:** [alex_tsvetanov_2002@abv.bg](mailto:alex_tsvetanov_2002@abv.bg)
-- **Website:** [Alex Tsvetanov](alex-tsvetanov.github.io)
+- **Website:** [Alex Tsvetanov](https://alex-tsvetanov.github.io)

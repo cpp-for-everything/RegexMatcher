@@ -1,14 +1,17 @@
 # RegexMatcher: High-Performance Multi-Pattern Regex Engine in C++
+
 ### Matching Text from Start to Finish Against Multiple Regular Expressions
 
 ---
 
 ## Overview
+
 **RegexMatcher** is a high-performance C++ library for matching input text against multiple regular expressions simultaneously, from the beginning to the end of a string. It is designed for efficiency and accuracy, enabling deterministic behavior even in large-scale, high-throughput systems such as web servers, content filters, or custom compilers.
 
 This project implements an advanced data structure inspired by finite automata and combines it with regex parsing to allow effective matching, leveraging an iterative algorithmic design. Unlike traditional regex engines that operate one pattern at a time, RegexMatcher is optimized for batch processing of many regular expressions with bounded overhead.
 
 ## Scientific Foundation
+
 The core algorithmic approach of this project is described in the following peer-reviewed publication:
 
 > I. Stankov and A. Tsvetanov, "Matching Text from Start to Finish Against Multiple Regular Expressions,"
@@ -22,9 +25,11 @@ The paper introduces a hybrid model that blends deterministic finite automata (D
 - High-throughput automated testing tools
 
 ## Keywords
+>
 > **Uniform resource locators, C++ languages, Data structures, Web servers, Iterative algorithms, Telecommunications, Testing, Regex, Pattern matching, Aho-Corasick**
 
 ## Features
+
 - ⚡ **Multi-pattern support**: Match multiple regex patterns simultaneously from start to end.
 - 🧠 **Deterministic traversal**: Uses a hybrid state machine model with no backtracking on successful paths.
 - 🛠 **Written in modern C++**: Clean, modular, and efficient C++17 implementation.
@@ -32,6 +37,7 @@ The paper introduces a hybrid model that blends deterministic finite automata (D
 - 🌐 **Designed for scalability**: Suitable for integration into web servers, telecom processing units, and parsers.
 
 ## Quick Start
+
 Clone and Build
 
 ```bash
@@ -43,6 +49,7 @@ make
 ```
 
 ## Example Usage
+
 You can construct a matcher and feed it multiple regexes like so:
 
 ```cpp
@@ -58,11 +65,13 @@ if (matcher.match("123456abc")) {
 ```
 
 ## Benchmarks and Performance
+
 RegexMatcher achieves competitive throughput compared to existing open-source libraries, especially in workloads with many patterns and strict matching requirements. Benchmarking against traditional engines (e.g., PCRE, std::regex) demonstrates its superior performance in multi-pattern deterministic scenarios.
 
 > More detailed evaluation and formal analysis can be found in the [scientific paper](https://doi.org/10.1109/TELECOM63374.2024.10812214).
 
 ## Applications
+
 RegexMatcher is designed for real-world scenarios where correctness and speed are critical. This includes:
 
 - Parsing and validating URLs and network traffic
@@ -71,9 +80,18 @@ RegexMatcher is designed for real-world scenarios where correctness and speed ar
 - Static or runtime analysis of log patterns and structured data
 
 ## License
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+
+This project is dual-licensed:
+
+- **Open Source**: [GNU General Public License v3.0](LICENSE) (GPLv3)
+- **Commercial**: Available for proprietary use — see [LICENSING.md](LICENSING.md) for details
+
+Copyright (C) 2025 Alex Tsvetanov
 
 ## Citation
+
 If you use this library in academic work, please cite the following:
 
 ```bib
@@ -88,5 +106,5 @@ If you use this library in academic work, please cite the following:
 ```
 
 ## Contributing
-Contributions are welcome! If you have suggestions, optimizations, or bug fixes, feel free to open a pull request or issue.
 
+Contributions are welcome! If you have suggestions, optimizations, or bug fixes, feel free to open a pull request or issue.
