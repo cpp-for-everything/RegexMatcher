@@ -53,6 +53,139 @@ TEST(RegexMatcherValidity, matcher_tests_many_regexes_many_matches) {
 	     "dabcabc",   "dabc",      "ddefdef",   "dabcg",      "dg",         "dabcabcg",   "ddefabcg",  "ddefdefg"});
 }
 
+// Tests for group capture functionality
+TEST(RegexMatcherGroups, simple_group_capture) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("a(bc)d"), 0);
+
+	auto results = root.match_with_groups(std::string("abcd"));
+	ASSERT_EQ(results.size(), 1);
+	EXPECT_EQ(results[0].regex_id, 0);
+	ASSERT_EQ(results[0].groups.size(), 1);
+	// Group 0 should capture "bc" at positions 1-3
+	EXPECT_EQ(results[0].groups.at(0).first, 1);
+	EXPECT_EQ(results[0].groups.at(0).second, 3);
+}
+
+TEST(RegexMatcherGroups, multiple_groups) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("(a)(b)(c)"), 0);
+
+	auto results = root.match_with_groups(std::string("abc"));
+	ASSERT_EQ(results.size(), 1);
+	EXPECT_EQ(results[0].regex_id, 0);
+	ASSERT_EQ(results[0].groups.size(), 3);
+	// Group 0: "a" at 0-1
+	EXPECT_EQ(results[0].groups.at(0).first, 0);
+	EXPECT_EQ(results[0].groups.at(0).second, 1);
+	// Group 1: "b" at 1-2
+	EXPECT_EQ(results[0].groups.at(1).first, 1);
+	EXPECT_EQ(results[0].groups.at(1).second, 2);
+	// Group 2: "c" at 2-3
+	EXPECT_EQ(results[0].groups.at(2).first, 2);
+	EXPECT_EQ(results[0].groups.at(2).second, 3);
+}
+
+TEST(RegexMatcherGroups, nested_groups) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("a((b)c)d"), 0);
+
+	auto results = root.match_with_groups(std::string("abcd"));
+	ASSERT_EQ(results.size(), 1);
+	EXPECT_EQ(results[0].regex_id, 0);
+	ASSERT_EQ(results[0].groups.size(), 2);
+	// Group 0: "bc" at 1-3
+	EXPECT_EQ(results[0].groups.at(0).first, 1);
+	EXPECT_EQ(results[0].groups.at(0).second, 3);
+	// Group 1: "b" at 1-2
+	EXPECT_EQ(results[0].groups.at(1).first, 1);
+	EXPECT_EQ(results[0].groups.at(1).second, 2);
+}
+
+TEST(RegexMatcherGroups, group_with_alternation) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("a(b|c)d"), 0);
+
+	auto results1 = root.match_with_groups(std::string("abd"));
+	ASSERT_EQ(results1.size(), 1);
+	EXPECT_EQ(results1[0].groups.at(0).first, 1);
+	EXPECT_EQ(results1[0].groups.at(0).second, 2);
+
+	auto results2 = root.match_with_groups(std::string("acd"));
+	ASSERT_EQ(results2.size(), 1);
+	// Check if group 0 exists before accessing
+	EXPECT_TRUE(results2[0].groups.find(0) != results2[0].groups.end());
+	if (results2[0].groups.find(0) != results2[0].groups.end()) {
+		EXPECT_EQ(results2[0].groups.at(0).first, 1);
+		EXPECT_EQ(results2[0].groups.at(0).second, 2);
+	}
+}
+
+TEST(RegexMatcherGroups, group_with_repetition) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("a(bc)+d"), 0);
+
+	auto results = root.match_with_groups(std::string("abcbcd"));
+	ASSERT_EQ(results.size(), 1);
+	// The group should capture the last repetition or full span depending on semantics
+	EXPECT_TRUE(results[0].groups.find(0) != results[0].groups.end());
+}
+
+TEST(RegexMatcherGroups, no_match_no_groups) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("a(bc)d"), 0);
+
+	auto results = root.match_with_groups(std::string("xyz"));
+	EXPECT_EQ(results.size(), 0);
+}
+
+TEST(RegexMatcherGroups, multiple_regexes_with_groups) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("(a)bc"), 0);
+	root.add_regex(std::string("a(b)c"), 1);
+
+	auto results = root.match_with_groups(std::string("abc"));
+	ASSERT_EQ(results.size(), 2);
+	// Both regexes should match with their respective groups
+}
+
+TEST(RegexMatcherGroups, performance_comparison) {
+	matcher::RegexMatcher<int, char> root;
+	root.add_regex(std::string("d(abc|def)*g+"), 0);
+	root.add_regex(std::string("d(abc)*g+"), 1);
+	root.add_regex(std::string("(a)?"), 2);
+
+	std::string test_str = "dabcabcg";
+	const int iterations = 10000;
+
+	// Warm up
+	for (int i = 0; i < 100; i++) {
+		root.match(test_str);
+		root.match_with_groups(test_str);
+	}
+
+	auto t1 = high_resolution_clock::now();
+	for (int i = 0; i < iterations; i++) {
+		auto r = root.match(test_str);
+	}
+	auto t2 = high_resolution_clock::now();
+	for (int i = 0; i < iterations; i++) {
+		auto r = root.match_with_groups(test_str);
+	}
+	auto t3 = high_resolution_clock::now();
+
+	auto match_time = duration<double, std::nano>(t2 - t1).count() / iterations;
+	auto match_groups_time = duration<double, std::nano>(t3 - t2).count() / iterations;
+
+	std::cout << "\n\tPerformance comparison (" << iterations << " iterations):\n";
+	std::cout << "\t  match():             " << match_time << " ns/call\n";
+	std::cout << "\t  match_with_groups(): " << match_groups_time << " ns/call\n";
+	std::cout << "\t  Overhead:            " << (match_groups_time / match_time - 1) * 100 << "%\n";
+
+	// Just ensure both return same number of matches
+	EXPECT_EQ(root.match(test_str).size(), root.match_with_groups(test_str).size());
+}
+
 int main(int argc, char** argv) {
 	std::cout << "RegexMatcher VERSION: " << RegexMatcher_VERSION_MAJOR << "." << RegexMatcher_VERSION_MINOR << "."
 	          << RegexMatcher_VERSION_PATCH << "." << RegexMatcher_VERSION_TWEAK << std::endl;

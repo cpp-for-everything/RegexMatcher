@@ -135,6 +135,12 @@ namespace {
 	template <typename RegexData, typename char_t>
 	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex,
 	                                           std::optional<Limits*> limit) {
+		connect_with(child, regex, {}, limit);
+	}
+
+	template <typename RegexData, typename char_t>
+	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex,
+	                                           const std::vector<GroupMarker>& markers, std::optional<Limits*> limit) {
 		if (auto existing_child = neighbours.find(child->current_symbol); existing_child != neighbours.end()) {
 			if (auto it = existing_child->second.paths.find(regex); it != existing_child->second.paths.end()) {
 				if (!it->second.has_value() && limit == std::nullopt) {
@@ -154,10 +160,19 @@ namespace {
 			} else {
 				neighbours[child->current_symbol].paths.emplace(regex, limit);
 			}
+			// Append group markers for this regex path
+			if (!markers.empty()) {
+				auto& existing_markers = neighbours[child->current_symbol].group_markers[regex];
+				existing_markers.insert(existing_markers.end(), markers.begin(), markers.end());
+			}
 			return;
 		}
 		neighbours[child->current_symbol].paths.emplace(regex, limit);
 		neighbours[child->current_symbol].to = child;
+		// Store group markers for this regex path
+		if (!markers.empty()) {
+			neighbours[child->current_symbol].group_markers[regex] = markers;
+		}
 	}
 
 	template <typename RegexData, typename char_t>
@@ -257,6 +272,156 @@ namespace {
 			}
 		}
 		return answer;
+	}
+
+	template <typename RegexData, typename char_t>
+	template <typename ConstIterator>
+	std::vector<matcher::MatchResult<RegexData>> Node<RegexData, char_t>::match_with_groups(ConstIterator begin,
+	                                                                                        ConstIterator end) const {
+		std::vector<matcher::MatchResult<RegexData>> results;
+		std::map<RegexData, CaptureState> capture_states;
+		match_with_groups_helper(begin, end, 0, {}, nullptr, capture_states, results);
+		return results;
+	}
+
+	template <typename RegexData, typename char_t>
+	template <typename ConstIterator>
+	void Node<RegexData, char_t>::match_with_groups_helper(
+	    ConstIterator begin, ConstIterator end, size_t position, const std::vector<RegexData>& paths, const Node* prev,
+	    std::map<RegexData, CaptureState>& capture_states,
+	    std::vector<matcher::MatchResult<RegexData>>& results) const {
+		if (begin == end) {
+			// Check for end-of-regex marker
+			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
+				std::vector<RegexData> potential_answer = common_values(paths, it->second.paths);
+				for (RegexData pathId : potential_answer) {
+					bool to_include = true;
+					// Check limit constraints (same logic as match_helper)
+					if (prev != nullptr) {
+						if (const auto knot = prev->neighbours.find(this->current_symbol);
+						    knot != prev->neighbours.end()) {
+							if (const auto knot_path = it->second.paths.find(pathId);
+							    knot_path != it->second.paths.end()) {
+								if (knot_path->second.has_value()) {
+									to_include &= knot_path->second.value()->min == 0;
+								}
+							}
+						}
+						if (const auto knot = this->neighbours.find(this->current_symbol);
+						    knot != this->neighbours.end()) {
+							if (knot->second.paths.find(pathId) != knot->second.paths.end()) {
+								if (knot->second.paths.at(pathId).has_value()) {
+									to_include &= knot->second.paths.at(pathId).value()->min == 0;
+								}
+							}
+						}
+					}
+					if (to_include) {
+						// Process any group markers on the EOR edge
+						if (auto markers_it = it->second.group_markers.find(pathId);
+						    markers_it != it->second.group_markers.end()) {
+							for (const auto& marker : markers_it->second) {
+								if (marker.is_start) {
+									capture_states[pathId].open_groups[marker.group_id] = position;
+								} else {
+									if (auto open_it = capture_states[pathId].open_groups.find(marker.group_id);
+									    open_it != capture_states[pathId].open_groups.end()) {
+										capture_states[pathId].completed_groups[marker.group_id] = {open_it->second,
+										                                                            position};
+										capture_states[pathId].open_groups.erase(open_it);
+									}
+								}
+							}
+						}
+						// Create result with captured groups
+						results.emplace_back(pathId, capture_states[pathId].completed_groups);
+					}
+				}
+			}
+			return;
+		}
+
+		const symbol<char_t> current = symbol<char_t>(*begin);
+		for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
+			if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
+				size_t ind = 0;
+				std::vector<RegexData> new_paths;
+				new_paths.reserve(paths.size());
+				std::map<RegexData, std::optional<Limits>> current_paths;
+
+				for (const auto& [pathId, limits_ptr] : it->second.paths) {
+					if (limits_ptr.has_value() && !limits_ptr.value()->is_allowed_to_repeat()) {
+						continue;
+					}
+					if (prev != nullptr) {
+						if (paths[ind] > pathId) {
+							continue;
+						}
+						while (ind < paths.size() && paths[ind] < pathId) {
+							ind++;
+						}
+						if (ind == paths.size()) {
+							break;
+						}
+					}
+					if (prev == nullptr || paths[ind] == pathId) {
+						new_paths.push_back(pathId);
+						if (!limits_ptr.has_value()) {
+							continue;
+						}
+						current_paths.emplace(pathId, *limits_ptr.value());
+						--(*limits_ptr.value());
+					}
+				}
+
+				if (!new_paths.empty()) {
+					// Save capture states before recursion
+					std::map<RegexData, CaptureState> saved_states = capture_states;
+
+					// Process group markers for this edge
+					// Group markers are processed BEFORE consuming the current character
+					// - Group-start markers: record current position as start
+					// - Group-end markers: record current position as end (exclusive)
+					for (RegexData pathId : new_paths) {
+						if (auto markers_it = it->second.group_markers.find(pathId);
+						    markers_it != it->second.group_markers.end()) {
+							for (const auto& marker : markers_it->second) {
+								if (marker.is_start) {
+									capture_states[pathId].open_groups[marker.group_id] = position;
+								} else {
+									if (auto open_it = capture_states[pathId].open_groups.find(marker.group_id);
+									    open_it != capture_states[pathId].open_groups.end()) {
+										// End position is current position (before consuming this character)
+										capture_states[pathId].completed_groups[marker.group_id] = {open_it->second,
+										                                                            position};
+										capture_states[pathId].open_groups.erase(open_it);
+									}
+								}
+							}
+						}
+					}
+
+					size_t next_position = (to_test != symbol<char_t>::None) ? position + 1 : position;
+					ConstIterator next_begin = begin;
+					if (to_test != symbol<char_t>::None) {
+						next_begin++;
+					}
+
+					it->second.to->match_with_groups_helper(next_begin, end, next_position, new_paths, this,
+					                                        capture_states, results);
+
+					// Restore capture states after recursion
+					capture_states = saved_states;
+
+					// Restore limits
+					for (const auto& [pathId, old_limits] : current_paths) {
+						if (old_limits.has_value()) {
+							(*it->second.paths.at(pathId).value()) = old_limits.value();
+						}
+					}
+				}
+			}
+		}
 	}
 
 #ifdef DEBUG
