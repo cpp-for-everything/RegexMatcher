@@ -1,7 +1,8 @@
-#ifndef CORE_IMPL
-#define CORE_IMPL
-
-#include <matcher/core.hpp>
+/**
+ * @file core.ipp
+ * @brief Template implementation for RegexMatcher class
+ * @note This file is included by core.hpp - do not include directly
+ */
 
 #include <list>
 
@@ -250,5 +251,3 @@ namespace matcher {
 	}
 
 }  // namespace matcher
-
-#endif
