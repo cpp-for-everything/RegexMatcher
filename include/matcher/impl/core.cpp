@@ -142,11 +142,11 @@ namespace matcher {
 	template <typename ConstIterator>
 	SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::process(
 	    std::vector<Node<RegexData, char_t>*> parents, RegexData regex, ConstIterator& it, ConstIterator end,
-	    const bool inBrackets, size_t& group_counter, std::vector<GroupMarker>& pending_markers) {
+	    const bool inBrackets, size_t& group_counter, std::vector<TagAction>& pending_actions) {
 		SubTree<Node<RegexData, char_t>> answer = {{}, {}};
 		std::vector<SubTree<Node<RegexData, char_t>>> nodeLayers = {{parents, parents}};
-		// Save initial pending markers to restore on alternation
-		std::vector<GroupMarker> initial_markers = pending_markers;
+		// Save initial pending actions to restore on alternation
+		std::vector<TagAction> initial_actions = pending_actions;
 		for (; it != end; it++) {
 			if (*it == ')' && inBrackets) {
 				break;
@@ -156,19 +156,19 @@ namespace matcher {
 				SubTree<Node<RegexData, char_t>> newNodes = processSet(latest_parents.get_leafs(), regex, it);
 				for (auto parent : latest_parents.get_leafs()) {
 					for (auto newNode : newNodes.get_leafs()) {
-						parent->connect_with(newNode, regex, pending_markers);
+						parent->connect_with(newNode, regex, pending_actions);
 					}
 				}
-				pending_markers.clear();
+				pending_actions.clear();
 				nodeLayers.push_back(newNodes);
 			} else if (*it == '(') {  // start of a regex in brackets (capture group)
 				size_t current_group_id = group_counter++;
-				pending_markers.push_back(GroupMarker(current_group_id, true));  // group start
+				pending_actions.push_back(TagAction::open(current_group_id));  // OPEN_GROUP tag
 				it++;
 				SubTree<Node<RegexData, char_t>> newLayer =
 				    process(nodeLayers.back().get_leafs(), regex, it, end, true, group_counter,
-				            pending_markers);                                     // leaves it at the closing bracket
-				pending_markers.push_back(GroupMarker(current_group_id, false));  // group end
+				            pending_actions);                                   // leaves it at the closing bracket
+				pending_actions.push_back(TagAction::close(current_group_id));  // CLOSE_GROUP tag
 				nodeLayers.push_back(newLayer);
 			} else if (*it == '|') {
 				answer.roots.insert(answer.roots.end(), nodeLayers[1].get_leafs().begin(),
@@ -176,8 +176,8 @@ namespace matcher {
 				answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(),
 				                    nodeLayers.back().get_leafs().end());
 				nodeLayers.resize(1);
-				// Restore initial markers for the next alternative branch
-				pending_markers = initial_markers;
+				// Restore initial actions for the next alternative branch
+				pending_actions = initial_actions;
 			} else if (*it == '{') {
 				[[maybe_unused]] Limits* limits =
 				    processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
@@ -207,9 +207,9 @@ namespace matcher {
 					nextNode = new Node<RegexData, char_t>(sym);
 				}
 				for (auto parent : nodeLayers.back().get_leafs()) {
-					parent->connect_with(nextNode, regex, pending_markers);
+					parent->connect_with(nextNode, regex, pending_actions);
 				}
-				pending_markers.clear();
+				pending_actions.clear();
 				nodeLayers.push_back({{nextNode}, {nextNode}});
 			}
 		}
@@ -220,7 +220,7 @@ namespace matcher {
 			Node<RegexData, char_t>* end_of_regex = new Node<RegexData, char_t>(symbol<char_t>::EOR);
 			SubTree<Node<RegexData, char_t>> final_answer = {answer.get_roots(), {end_of_regex}};
 			for (auto parent : answer.leafs) {
-				parent->connect_with(end_of_regex, regex, pending_markers);
+				parent->connect_with(end_of_regex, regex, pending_actions);
 			}
 			return final_answer;
 		}
@@ -233,8 +233,8 @@ namespace matcher {
 	void RegexMatcher<RegexData, char_t>::add_regex(Iterable str, RegexData uid) {
 		auto it = std::cbegin(str);
 		size_t group_counter = 0;
-		std::vector<GroupMarker> pending_markers;
-		process(std::vector{&root}, uid, it, std::cend(str), false, group_counter, pending_markers);
+		std::vector<TagAction> pending_actions;
+		process(std::vector{&root}, uid, it, std::cend(str), false, group_counter, pending_actions);
 	}
 
 	template <typename RegexData, typename char_t>
