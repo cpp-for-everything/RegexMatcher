@@ -32,6 +32,18 @@ target_link_libraries(tests
 include(GoogleTest)
 gtest_discover_tests(tests)
 
+# Add benchmark executable
+add_executable(benchmarks benchmarks.cpp)
+target_include_directories(
+   benchmarks
+   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include
+)
+target_link_libraries(benchmarks
+   PRIVATE
+   RegexMatcher
+   benchmark::benchmark
+)
+
 if(CMAKE_C_COMPILER_ID MATCHES "(Apple)?[Cc]lang" OR CMAKE_CXX_COMPILER_ID MATCHES "(Apple)?[Cc]lang"
    OR CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
    target_code_coverage(tests AUTO ALL EXCLUDE tests/*)
