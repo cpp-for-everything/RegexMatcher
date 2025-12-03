@@ -9,6 +9,7 @@
 #include <vector>
 #include <optional>
 #include <sstream>
+#include <cstdint>
 
 #ifdef DEBUG
 #include <iostream>
@@ -55,27 +56,100 @@ namespace {
 	struct Limits;
 
 	/**
-	 * @brief Marker indicating group boundary during traversal
-	 *
+	 * @brief Tag action for tagged automaton transitions
+	 * Represents capture operations: opening or closing a group at a position
 	 */
-	struct GroupMarker {
-		size_t group_id;
-		bool is_start;  // true = group start, false = group end
+	struct TagAction {
+		enum class Type : uint8_t {
+			OPEN_GROUP,  // Start capturing group_id
+			CLOSE_GROUP  // End capturing group_id
+		};
 
-		GroupMarker(size_t id, bool start) : group_id(id), is_start(start) {}
+		Type type;
+		size_t group_id;
+
+		TagAction(Type t, size_t id) : type(t), group_id(id) {}
+
+		static TagAction open(size_t group_id) { return TagAction(Type::OPEN_GROUP, group_id); }
+		static TagAction close(size_t group_id) { return TagAction(Type::CLOSE_GROUP, group_id); }
+
+		bool is_open() const { return type == Type::OPEN_GROUP; }
+		bool is_close() const { return type == Type::CLOSE_GROUP; }
 	};
 
 	/**
-	 * @brief Capture state tracking during match traversal
-	 *
+	 * @brief Capture slots for efficient group position tracking
+	 * Uses vector for O(1) access instead of map
+	 * Auto-resizes when accessing groups beyond current capacity
+	 * Supports undo operations for efficient backtracking without full copies
 	 */
-	struct CaptureState {
-		std::map<size_t, size_t> open_groups;                          // group_id -> start position
-		std::map<size_t, std::pair<size_t, size_t>> completed_groups;  // group_id -> (start, end)
+	struct CaptureSlots {
+		static constexpr size_t UNSET = static_cast<size_t>(-1);
 
-		CaptureState() = default;
-		CaptureState(const CaptureState&) = default;
-		CaptureState& operator=(const CaptureState&) = default;
+		std::vector<size_t> start_positions;  // group_id -> start position (UNSET if not started)
+		std::vector<size_t> end_positions;    // group_id -> end position (UNSET if not ended)
+
+		CaptureSlots() = default;
+
+		void ensure_capacity(size_t group_id) {
+			if (group_id >= start_positions.size()) {
+				start_positions.resize(group_id + 1, UNSET);
+				end_positions.resize(group_id + 1, UNSET);
+			}
+		}
+
+		// Returns previous value for undo
+		size_t open_group(size_t group_id, size_t position) {
+			ensure_capacity(group_id);
+			size_t prev = start_positions[group_id];
+			start_positions[group_id] = position;
+			return prev;
+		}
+
+		// Returns previous value for undo
+		size_t close_group(size_t group_id, size_t position) {
+			ensure_capacity(group_id);
+			size_t prev = end_positions[group_id];
+			end_positions[group_id] = position;
+			return prev;
+		}
+
+		// Restore previous start value
+		void undo_open(size_t group_id, size_t prev_value) { start_positions[group_id] = prev_value; }
+
+		// Restore previous end value
+		void undo_close(size_t group_id, size_t prev_value) { end_positions[group_id] = prev_value; }
+
+		bool is_group_complete(size_t group_id) const {
+			return group_id < start_positions.size() && start_positions[group_id] != UNSET &&
+			       end_positions[group_id] != UNSET;
+		}
+
+		std::map<size_t, std::pair<size_t, size_t>> to_map() const {
+			std::map<size_t, std::pair<size_t, size_t>> result;
+			for (size_t i = 0; i < start_positions.size(); ++i) {
+				if (start_positions[i] != UNSET && end_positions[i] != UNSET) {
+					result[i] = {start_positions[i], end_positions[i]};
+				}
+			}
+			return result;
+		}
+	};
+
+	/**
+	 * @brief Simulation state for tagged NFA traversal
+	 * Bundles all state needed during matching
+	 */
+	template <typename RegexData>
+	struct SimulationState {
+		std::vector<RegexData> active_paths;         // Currently active regex paths
+		std::map<RegexData, CaptureSlots> captures;  // Capture slots per regex
+
+		SimulationState() = default;
+		SimulationState(const SimulationState&) = default;
+		SimulationState& operator=(const SimulationState&) = default;
+		SimulationState(SimulationState&&) = default;
+		SimulationState& operator=(SimulationState&&) = default;
 	};
 
 	/**
@@ -179,7 +253,7 @@ namespace {
 	struct EdgeInfo {
 		std::map<T, std::optional<Limits*>>
 		    paths;  // each path may have different requirements for how many times should the edge be repeated.
-		std::map<T, std::vector<GroupMarker>> group_markers;  // group boundaries per regex path
+		std::map<T, std::vector<TagAction>> tag_actions;  // tag actions per regex path for capture tracking
 		Node* to;
 		EdgeInfo() = default;
 		EdgeInfo(const EdgeInfo& info) {
@@ -190,8 +264,8 @@ namespace {
 					paths[x.first] = std::nullopt;
 				}
 			}
-			for (auto x : info.group_markers) {
-				group_markers[x.first] = x.second;
+			for (auto x : info.tag_actions) {
+				tag_actions[x.first] = x.second;
 			}
 			to = info.to;
 		}
@@ -335,14 +409,14 @@ namespace {
 		                  std::optional<Limits*> limits = std::nullopt);
 
 		/**
-		 * @brief Adds a child node with group markers for capture tracking
+		 * @brief Adds a child node with tag actions for capture tracking
 		 *
 		 * @param child  Existing node
 		 * @param regex  Regex data that is being used to identify the regex that the edge is part of
-		 * @param markers Group markers to attach to this edge
+		 * @param actions Tag actions to attach to this edge transition
 		 * @param limits Pointer to the shared limit of the edge (nullptr if no limit is applied)
 		 */
-		void connect_with(Node<RegexData, char_t>* child, RegexData regex, const std::vector<GroupMarker>& markers,
+		void connect_with(Node<RegexData, char_t>* child, RegexData regex, const std::vector<TagAction>& actions,
 		                  std::optional<Limits*> limits = std::nullopt);
 
 		/**
@@ -373,7 +447,7 @@ namespace {
 		template <typename ConstIterator>
 		void match_with_groups_helper(ConstIterator begin, ConstIterator end, size_t position,
 		                              const std::vector<RegexData>& paths, const Node* prev,
-		                              std::map<RegexData, CaptureState>& capture_states,
+		                              std::map<RegexData, CaptureSlots>& capture_slots,
 		                              std::vector<matcher::MatchResult<RegexData>>& results) const;
 
 #ifdef DEBUG
@@ -418,8 +492,7 @@ namespace matcher {
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> process(std::vector<Node<RegexData, char_t>*>, RegexData,
 		                                                ConstIterator&, ConstIterator, const bool,
-		                                                size_t& group_counter,
-		                                                std::vector<GroupMarker>& pending_markers);
+		                                                size_t& group_counter, std::vector<TagAction>& pending_actions);
 
 	public:
 		/**
