@@ -149,42 +149,8 @@ TEST(RegexMatcherGroups, multiple_regexes_with_groups) {
 	// Both regexes should match with their respective groups
 }
 
-TEST(RegexMatcherGroups, performance_comparison) {
-	matcher::RegexMatcher<int, char> root;
-	root.add_regex(std::string("d(abc|def)*g+"), 0);
-	root.add_regex(std::string("d(abc)*g+"), 1);
-	root.add_regex(std::string("(a)?"), 2);
-
-	std::string test_str = "dabcabcg";
-	const int iterations = 10000;
-
-	// Warm up
-	for (int i = 0; i < 100; i++) {
-		root.match(test_str);
-		root.match_with_groups(test_str);
-	}
-
-	auto t1 = high_resolution_clock::now();
-	for (int i = 0; i < iterations; i++) {
-		auto r = root.match(test_str);
-	}
-	auto t2 = high_resolution_clock::now();
-	for (int i = 0; i < iterations; i++) {
-		auto r = root.match_with_groups(test_str);
-	}
-	auto t3 = high_resolution_clock::now();
-
-	auto match_time = duration<double, std::nano>(t2 - t1).count() / iterations;
-	auto match_groups_time = duration<double, std::nano>(t3 - t2).count() / iterations;
-
-	std::cout << "\n\tPerformance comparison (" << iterations << " iterations):\n";
-	std::cout << "\t  match():             " << match_time << " ns/call\n";
-	std::cout << "\t  match_with_groups(): " << match_groups_time << " ns/call\n";
-	std::cout << "\t  Overhead:            " << (match_groups_time / match_time - 1) * 100 << "%\n";
-
-	// Just ensure both return same number of matches
-	EXPECT_EQ(root.match(test_str).size(), root.match_with_groups(test_str).size());
-}
+// Performance benchmarks have been moved to benchmarks.cpp using Google Benchmark
+// Run: ./build/tests/benchmarks.exe
 
 int main(int argc, char** argv) {
 	std::cout << "RegexMatcher VERSION: " << RegexMatcher_VERSION_MAJOR << "." << RegexMatcher_VERSION_MINOR << "."
