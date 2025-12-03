@@ -27,6 +27,19 @@ namespace matcher {
 	 */
 	template <typename RegexData, typename char_t = char>
 	class RegexMatcher;
+
+	/**
+	 * @brief Result of a regex match with captured groups
+	 *
+	 * @tparam RegexData Type of associated data with each regex
+	 */
+	template <typename RegexData>
+	struct MatchResult {
+		RegexData regex_id;
+		std::map<size_t, std::pair<size_t, size_t>> groups;  // group_id -> (start_pos, end_pos)
+
+		MatchResult(RegexData id, std::map<size_t, std::pair<size_t, size_t>> g) : regex_id(id), groups(std::move(g)) {}
+	};
 }  // namespace matcher
 
 /**
@@ -40,6 +53,30 @@ namespace {
 	 *
 	 */
 	struct Limits;
+
+	/**
+	 * @brief Marker indicating group boundary during traversal
+	 *
+	 */
+	struct GroupMarker {
+		size_t group_id;
+		bool is_start;  // true = group start, false = group end
+
+		GroupMarker(size_t id, bool start) : group_id(id), is_start(start) {}
+	};
+
+	/**
+	 * @brief Capture state tracking during match traversal
+	 *
+	 */
+	struct CaptureState {
+		std::map<size_t, size_t> open_groups;                          // group_id -> start position
+		std::map<size_t, std::pair<size_t, size_t>> completed_groups;  // group_id -> (start, end)
+
+		CaptureState() = default;
+		CaptureState(const CaptureState&) = default;
+		CaptureState& operator=(const CaptureState&) = default;
+	};
 
 	/**
 	 * @brief Class containing the list of regexes using the given edge
@@ -142,6 +179,7 @@ namespace {
 	struct EdgeInfo {
 		std::map<T, std::optional<Limits*>>
 		    paths;  // each path may have different requirements for how many times should the edge be repeated.
+		std::map<T, std::vector<GroupMarker>> group_markers;  // group boundaries per regex path
 		Node* to;
 		EdgeInfo() = default;
 		EdgeInfo(const EdgeInfo& info) {
@@ -151,6 +189,9 @@ namespace {
 				} else {
 					paths[x.first] = std::nullopt;
 				}
+			}
+			for (auto x : info.group_markers) {
+				group_markers[x.first] = x.second;
 			}
 			to = info.to;
 		}
@@ -294,6 +335,17 @@ namespace {
 		                  std::optional<Limits*> limits = std::nullopt);
 
 		/**
+		 * @brief Adds a child node with group markers for capture tracking
+		 *
+		 * @param child  Existing node
+		 * @param regex  Regex data that is being used to identify the regex that the edge is part of
+		 * @param markers Group markers to attach to this edge
+		 * @param limits Pointer to the shared limit of the edge (nullptr if no limit is applied)
+		 */
+		void connect_with(Node<RegexData, char_t>* child, RegexData regex, const std::vector<GroupMarker>& markers,
+		                  std::optional<Limits*> limits = std::nullopt);
+
+		/**
 		 * @brief Matches a string with all regexes and returns the identified of the one that matches
 		 *
 		 * @param text string that is being tried to be matched with any of the added regexes
@@ -306,6 +358,23 @@ namespace {
 		template <typename ConstIterator>
 		std::vector<RegexData> match_helper(ConstIterator, ConstIterator, const std::vector<RegexData>&,
 		                                    const Node*) const;
+
+		/**
+		 * @brief Matches a string with all regexes and returns matches with captured groups
+		 *
+		 * @param begin Start iterator of the string
+		 * @param end End iterator of the string
+		 * @tparam ConstIterator const iterator in a container
+		 * @return std::vector<matcher::MatchResult<RegexData>> matches with group captures
+		 */
+		template <typename ConstIterator>
+		std::vector<matcher::MatchResult<RegexData>> match_with_groups(ConstIterator begin, ConstIterator end) const;
+
+		template <typename ConstIterator>
+		void match_with_groups_helper(ConstIterator begin, ConstIterator end, size_t position,
+		                              const std::vector<RegexData>& paths, const Node* prev,
+		                              std::map<RegexData, CaptureState>& capture_states,
+		                              std::vector<matcher::MatchResult<RegexData>>& results) const;
 
 #ifdef DEBUG
 		void print_helper(size_t layer, std::set<const Node<RegexData, char_t>*>& traversed,
@@ -348,7 +417,9 @@ namespace matcher {
 
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> process(std::vector<Node<RegexData, char_t>*>, RegexData,
-		                                                ConstIterator&, ConstIterator, const bool);
+		                                                ConstIterator&, ConstIterator, const bool,
+		                                                size_t& group_counter,
+		                                                std::vector<GroupMarker>& pending_markers);
 
 	public:
 		/**
@@ -374,6 +445,15 @@ namespace matcher {
 		 */
 		template <typename Iterable>
 		std::vector<RegexData> match(Iterable) const;
+
+		/**
+		 * @brief Matches a string with all added regexes and returns captured groups
+		 *
+		 * @tparam Iterable Set of characters. Must implement std::cbegin and std::cend
+		 * @return std::vector<MatchResult<RegexData>> Set of matches with captured group positions
+		 */
+		template <typename Iterable>
+		std::vector<MatchResult<RegexData>> match_with_groups(Iterable) const;
 
 #ifdef DEBUG
 		/**
