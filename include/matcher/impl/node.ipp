@@ -33,9 +33,6 @@ namespace {
 	}
 
 	template <typename RegexData, typename char_t>
-	std::list<Limits*> Node<RegexData, char_t>::all_limits = std::list<Limits*>();
-
-	template <typename RegexData, typename char_t>
 	std::map<symbol<char_t>, std::string> Node<RegexData, char_t>::special_symbols = {
 	    {'+', "{1,}"}, {'*', "{0,}"}, {'?', "{0,1}"}};
 
@@ -136,19 +133,22 @@ namespace {
 
 	template <typename RegexData, typename char_t>
 	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex,
+	                                           std::vector<std::unique_ptr<Limits>>& limits_storage,
 	                                           std::optional<Limits*> limit) {
-		connect_with(child, regex, {}, limit);
+		connect_with(child, regex, {}, limits_storage, limit);
 	}
 
 	template <typename RegexData, typename char_t>
 	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex,
-	                                           const std::vector<TagAction>& actions, std::optional<Limits*> limit) {
+	                                           const std::vector<TagAction>& actions,
+	                                           std::vector<std::unique_ptr<Limits>>& limits_storage,
+	                                           std::optional<Limits*> limit) {
 		if (auto existing_child = neighbours.find(child->current_symbol); existing_child != neighbours.end()) {
 			if (auto it = existing_child->second.paths.find(regex); it != existing_child->second.paths.end()) {
 				if (!it->second.has_value() && limit == std::nullopt) {
-					auto limit = new Limits(1, 1);
-					Node<RegexData, char_t>::all_limits.push_back(limit);
-					it->second = limit;
+					limits_storage.push_back(std::make_unique<Limits>(1, 1));
+					auto new_limit_ptr = limits_storage.back().get();
+					it->second = new_limit_ptr;
 				} else if (it->second.has_value() && limit == std::nullopt) {
 					(it->second.value()->min)++;
 					if (it->second.value()->max.has_value()) {
@@ -156,9 +156,9 @@ namespace {
 					}
 				}
 			} else if (this == child && limit == std::nullopt) {
-				auto new_limit = new Limits(1, 1);
-				Node<RegexData, char_t>::all_limits.push_back(new_limit);
-				neighbours[child->current_symbol].paths.emplace(regex, new_limit);
+				limits_storage.push_back(std::make_unique<Limits>(1, 1));
+				auto new_limit_ptr = limits_storage.back().get();
+				neighbours[child->current_symbol].paths.emplace(regex, new_limit_ptr);
 			} else {
 				neighbours[child->current_symbol].paths.emplace(regex, limit);
 			}

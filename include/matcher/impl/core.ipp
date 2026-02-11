@@ -12,7 +12,8 @@ namespace matcher {
 	template <typename ConstIterator>
 	Limits* RegexMatcher<RegexData, char_t>::processLimit(const SubTree<Node<RegexData, char_t>>& parent_of_latest,
 	                                                      SubTree<Node<RegexData, char_t>>& lastest, RegexData regex,
-	                                                      ConstIterator& it) {
+	                                                      ConstIterator& it,
+	                                                      std::vector<std::unique_ptr<Limits>>& limits_storage) {
 		if (*it != '{')  // not called at the beginning of a set
 		{
 			throw std::logic_error("The iterator doesn't start from a limit group.");
@@ -20,8 +21,9 @@ namespace matcher {
 			it++;
 		}
 
-		auto answer = new Limits(Limits::common_edge);
-		Node<RegexData, char_t>::all_limits.push_back(answer);
+		auto answer_unique = std::make_unique<Limits>(Limits::common_edge);
+		auto answer = answer_unique.get();
+		limits_storage.push_back(std::move(answer_unique));
 
 		bool min = true;
 		size_t number = 0;
@@ -72,7 +74,7 @@ namespace matcher {
 						root->absorb(old_child);
 						lastest.get_leafs()[i]->neighbours[root->current_symbol].to = root;
 					}
-					lastest.get_leafs()[i]->connect_with(root, regex, answer);
+					lastest.get_leafs()[i]->connect_with(root, regex, limits_storage, answer);
 				}
 			}
 		}
@@ -83,7 +85,8 @@ namespace matcher {
 	template <typename RegexData, typename char_t>
 	template <typename ConstIterator>
 	SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::processSet(
-	    std::vector<Node<RegexData, char_t>*> parents, [[maybe_unused]] RegexData regex, ConstIterator& it) {
+	    std::vector<Node<RegexData, char_t>*> parents, [[maybe_unused]] RegexData regex, ConstIterator& it,
+	    std::vector<std::unique_ptr<Node<RegexData, char_t>>>& nodes_storage) {
 		if (*it != '[')  // not called at the beginning of a set
 		{
 			throw std::logic_error("The iterator doesn't start from a set group.");
@@ -109,7 +112,8 @@ namespace matcher {
 							}
 						}
 						if (nextLeaf == nullptr) {
-							nextLeaf = new Node<RegexData, char_t>(ch);
+							nodes_storage.push_back(std::make_unique<Node<RegexData, char_t>>(ch));
+							nextLeaf = nodes_storage.back().get();
 						}
 						leafs.push_back(nextLeaf);
 					}
@@ -128,7 +132,8 @@ namespace matcher {
 					}
 				}
 				if (nextLeaf == nullptr) {
-					nextLeaf = new Node<RegexData, char_t>(*it);
+					nodes_storage.push_back(std::make_unique<Node<RegexData, char_t>>(*it));
+					nextLeaf = nodes_storage.back().get();
 				}
 				leafs.push_back(nextLeaf);
 				takeTheNextSymbolLitterally = false;
@@ -143,7 +148,9 @@ namespace matcher {
 	template <typename ConstIterator>
 	SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::process(
 	    std::vector<Node<RegexData, char_t>*> parents, RegexData regex, ConstIterator& it, ConstIterator end,
-	    const bool inBrackets, size_t& group_counter, std::vector<TagAction>& pending_actions) {
+	    const bool inBrackets, size_t& group_counter, std::vector<TagAction>& pending_actions,
+	    std::vector<std::unique_ptr<Node<RegexData, char_t>>>& nodes_storage,
+	    std::vector<std::unique_ptr<Limits>>& limits_storage) {
 		SubTree<Node<RegexData, char_t>> answer = {{}, {}};
 		std::vector<SubTree<Node<RegexData, char_t>>> nodeLayers = {{parents, parents}};
 		// Save initial pending actions to restore on alternation
@@ -154,10 +161,11 @@ namespace matcher {
 			}
 			if (*it == '[') {  // start of a set
 				const auto latest_parents = nodeLayers.back();
-				SubTree<Node<RegexData, char_t>> newNodes = processSet(latest_parents.get_leafs(), regex, it);
+				SubTree<Node<RegexData, char_t>> newNodes =
+				    processSet(latest_parents.get_leafs(), regex, it, nodes_storage);
 				for (auto parent : latest_parents.get_leafs()) {
 					for (auto newNode : newNodes.get_leafs()) {
-						parent->connect_with(newNode, regex, pending_actions);
+						parent->connect_with(newNode, regex, pending_actions, limits_storage);
 					}
 				}
 				pending_actions.clear();
@@ -167,8 +175,8 @@ namespace matcher {
 				pending_actions.push_back(TagAction::open(current_group_id));  // OPEN_GROUP tag
 				it++;
 				SubTree<Node<RegexData, char_t>> newLayer =
-				    process(nodeLayers.back().get_leafs(), regex, it, end, true, group_counter,
-				            pending_actions);                                   // leaves it at the closing bracket
+				    process(nodeLayers.back().get_leafs(), regex, it, end, true, group_counter, pending_actions,
+				            nodes_storage, limits_storage);                     // leaves it at the closing bracket
 				pending_actions.push_back(TagAction::close(current_group_id));  // CLOSE_GROUP tag
 				nodeLayers.push_back(newLayer);
 			} else if (*it == '|') {
@@ -179,14 +187,13 @@ namespace matcher {
 				nodeLayers.resize(1);
 				// Restore initial actions for the next alternative branch
 				pending_actions = initial_actions;
-			} else if (*it == '{') {
 				[[maybe_unused]] Limits* limits =
-				    processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it);
+				    processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it, limits_storage);
 			} else if (auto special_regex = Node<RegexData, char_t>::special_symbols.find(*it);
 			           special_regex != Node<RegexData, char_t>::special_symbols.end()) {
 				auto tmp_it = special_regex->second.cbegin();
 				[[maybe_unused]] Limits* limits =
-				    processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it);
+				    processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, tmp_it, limits_storage);
 			} else {  // normal character
 				symbol<char_t> sym;
 				if (*it == '\\') {  // skip escape symbol
@@ -205,10 +212,11 @@ namespace matcher {
 					}
 				}
 				if (nextNode == nullptr) {
-					nextNode = new Node<RegexData, char_t>(sym);
+					nodes_storage.push_back(std::make_unique<Node<RegexData, char_t>>(sym));
+					nextNode = nodes_storage.back().get();
 				}
 				for (auto parent : nodeLayers.back().get_leafs()) {
-					parent->connect_with(nextNode, regex, pending_actions);
+					parent->connect_with(nextNode, regex, pending_actions, limits_storage);
 				}
 				pending_actions.clear();
 				nodeLayers.push_back({{nextNode}, {nextNode}});
@@ -218,10 +226,11 @@ namespace matcher {
 		answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(),
 		                    nodeLayers.back().get_leafs().end());
 		if (it == end) {
-			Node<RegexData, char_t>* end_of_regex = new Node<RegexData, char_t>(symbol<char_t>::EOR);
+			nodes_storage.push_back(std::make_unique<Node<RegexData, char_t>>(symbol<char_t>::EOR));
+			Node<RegexData, char_t>* end_of_regex = nodes_storage.back().get();
 			SubTree<Node<RegexData, char_t>> final_answer = {answer.get_roots(), {end_of_regex}};
 			for (auto parent : answer.leafs) {
-				parent->connect_with(end_of_regex, regex, pending_actions);
+				parent->connect_with(end_of_regex, regex, pending_actions, limits_storage);
 			}
 			return final_answer;
 		}
@@ -235,7 +244,8 @@ namespace matcher {
 		auto it = std::cbegin(str);
 		size_t group_counter = 0;
 		std::vector<TagAction> pending_actions;
-		process(std::vector{&root}, uid, it, std::cend(str), false, group_counter, pending_actions);
+		process(std::vector{&root}, uid, it, std::cend(str), false, group_counter, pending_actions, nodes_storage,
+		        limits_storage);
 	}
 
 	template <typename RegexData, typename char_t>

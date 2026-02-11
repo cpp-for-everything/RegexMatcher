@@ -10,6 +10,7 @@
 #include <optional>
 #include <sstream>
 #include <cstdint>
+#include <memory>
 
 #ifdef DEBUG
 #include <iostream>
@@ -316,7 +317,6 @@ namespace {
 		friend struct EdgeInfo<RegexData, char_t>;
 
 		static std::map<symbol<char_t>, std::string> special_symbols;
-		static std::list<Limits*> all_limits;
 
 		/**
 		 * @brief All directly connected nodes
@@ -330,6 +330,7 @@ namespace {
 		 */
 		symbol<char_t> current_symbol;
 
+	public:
 		/**
 		 * @brief Construct a new Node object
 		 *
@@ -343,6 +344,7 @@ namespace {
 		 */
 		Node(symbol<char_t> ch) { current_symbol = ch; }
 
+	private:
 		/**
 		 * @brief Represents the current node's symbol as string
 		 *
@@ -390,17 +392,11 @@ namespace {
 		 * @param limits Pointer to the shared limit of the edge (nullptr if no limit is applied)
 		 */
 		void connect_with(Node<RegexData, char_t>* child, RegexData regex,
+		                  std::vector<std::unique_ptr<Limits>>& limits_storage,
 		                  std::optional<Limits*> limits = std::nullopt);
 
-		/**
-		 * @brief Adds a child node with tag actions for capture tracking
-		 *
-		 * @param child  Existing node
-		 * @param regex  Regex data that is being used to identify the regex that the edge is part of
-		 * @param actions Tag actions to attach to this edge transition
-		 * @param limits Pointer to the shared limit of the edge (nullptr if no limit is applied)
-		 */
 		void connect_with(Node<RegexData, char_t>* child, RegexData regex, const std::vector<TagAction>& actions,
+		                  std::vector<std::unique_ptr<Limits>>& limits_storage,
 		                  std::optional<Limits*> limits = std::nullopt);
 
 		/**
@@ -464,19 +460,24 @@ namespace matcher {
 	template <typename RegexData, typename char_t>
 	class RegexMatcher {
 		Node<RegexData, char_t> root;
+		std::vector<std::unique_ptr<Node<RegexData, char_t>>> nodes_storage;
+		std::vector<std::unique_ptr<Limits>> limits_storage;
 
 		template <typename ConstIterator>
 		static Limits* processLimit(const SubTree<Node<RegexData, char_t>>&, SubTree<Node<RegexData, char_t>>&,
-		                            RegexData, ConstIterator&);
+		                            RegexData, ConstIterator&, std::vector<std::unique_ptr<Limits>>&);
 
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> processSet(std::vector<Node<RegexData, char_t>*>, RegexData,
-		                                                   ConstIterator&);
+		                                                   ConstIterator&,
+		                                                   std::vector<std::unique_ptr<Node<RegexData, char_t>>>&);
 
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> process(std::vector<Node<RegexData, char_t>*>, RegexData,
 		                                                ConstIterator&, ConstIterator, const bool,
-		                                                size_t& group_counter, std::vector<TagAction>& pending_actions);
+		                                                size_t& group_counter, std::vector<TagAction>& pending_actions,
+		                                                std::vector<std::unique_ptr<Node<RegexData, char_t>>>&,
+		                                                std::vector<std::unique_ptr<Limits>>&);
 
 	public:
 		/**
