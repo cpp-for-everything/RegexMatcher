@@ -8,9 +8,13 @@ using std::chrono::high_resolution_clock;
 using std::chrono::milliseconds;
 using namespace std::chrono_literals;
 
+#define STRINGIFY2(X) #X
+#define STRINGIFY(X) STRINGIFY2(X)
+
 int main(int argc, char** argv) {
-	std::cout << "RegexMatcher VERSION: " << RegexMatcher_VERSION_MAJOR << "." << RegexMatcher_VERSION_MINOR << "."
-	          << RegexMatcher_VERSION_PATCH << "." << RegexMatcher_VERSION_TWEAK << std::endl;
+	std::cout << "RegexMatcher VERSION: " << STRINGIFY(RegexMatcher_VERSION_MAJOR) << "."
+	          << STRINGIFY(RegexMatcher_VERSION_MINOR) << "." << STRINGIFY(RegexMatcher_VERSION_PATCH) << "."
+	          << STRINGIFY(RegexMatcher_VERSION_TWEAK) << std::endl;
 
 	matcher::RegexMatcher<int, char> root;
 	int num = 0;
