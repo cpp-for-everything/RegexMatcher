@@ -187,6 +187,7 @@ namespace matcher {
 				nodeLayers.resize(1);
 				// Restore initial actions for the next alternative branch
 				pending_actions = initial_actions;
+			} else if (*it == '{') {
 				[[maybe_unused]] Limits* limits =
 				    processLimit(nodeLayers[nodeLayers.size() - 2], nodeLayers.back(), regex, it, limits_storage);
 			} else if (auto special_regex = Node<RegexData, char_t>::special_symbols.find(*it);
