@@ -77,16 +77,43 @@ TEST(RegexMatcherValidity, matcher_class_with_repetition) {
 	test_for({"a[0-9]+b", "a[0-9]{2,3}c"}, {"a1b", "a123b", "ab", "a12c", "a123c", "a1234c"});
 }
 
-// A lower bound on a repeat is not enforced: a[0-9]{2,3}c matches a1c, which has one
-// digit where the pattern demands at least two. Disabled rather than deleted, because
-// the case is real and the suite should carry it until it passes.
+// Repeat lower bounds, which went unenforced in two separate ways.
 //
-// It predates the class rework and is not caused by it: the same input matches the same
-// way at 0279f59, before a class became one node. The bound is only ever checked where a
-// pattern ends, so a repeat that exits into more pattern is never asked whether it ran
-// its minimum number of times.
-TEST(RegexMatcherValidity, DISABLED_matcher_repeat_lower_bound_is_not_enforced) {
-	test_for({"a[0-9]{2,3}c"}, {"a1c", "a12c"});
+// A bound was only ever checked where a pattern ends, so a repeat that exited into more
+// pattern was never asked whether it had run its minimum, and a[0-9]{2,3}c matched a1c.
+// Separately, {n} with no comma set the upper bound and left the lower one at zero, so
+// {3} meant "up to three" and a[0-9]{3}z matched az.
+
+TEST(RegexMatcherValidity, matcher_repeat_bound_at_end_of_pattern) {
+	test_for({"a[0-9]{2,3}"}, {"a", "a1", "a12", "a123", "a1234"});
+}
+
+TEST(RegexMatcherValidity, matcher_repeat_bound_followed_by_more_pattern) {
+	test_for({"a[0-9]{2,3}c"}, {"ac", "a1c", "a12c", "a123c", "a1234c"});
+}
+
+TEST(RegexMatcherValidity, matcher_repeat_exact_count) {
+	test_for({"a[0-9]{3}z"}, {"az", "a1z", "a12z", "a123z", "a1234z"});
+}
+
+TEST(RegexMatcherValidity, matcher_repeat_open_upper_bound) {
+	test_for({"a[0-9]{2,}z"}, {"az", "a1z", "a12z", "a12345z"});
+}
+
+TEST(RegexMatcherValidity, matcher_repeat_zero_lower_bound_stays_permissive) {
+	test_for({"a[0-9]{0,2}z", "a[0-9]*z", "a[0-9]+z"}, {"az", "a1z", "a12z", "a123z"});
+}
+
+TEST(RegexMatcherValidity, matcher_repeat_over_a_literal) {
+	test_for({"ab{2,3}c"}, {"ac", "abc", "abbc", "abbbc", "abbbbc"});
+}
+
+TEST(RegexMatcherValidity, matcher_two_bounded_repeats_in_sequence) {
+	test_for({"a[0-9]{2}b[a-z]{2}c"}, {"a12bxyc", "a1bxyc", "a12bxc", "a12bxyzc"});
+}
+
+TEST(RegexMatcherValidity, matcher_repeat_bound_inside_a_group) {
+	test_for({"\\/x\\/([0-9]{2,3})\\/y"}, {"/x/1/y", "/x/12/y", "/x/123/y", "/x/1234/y"});
 }
 
 TEST(RegexMatcherValidity, matcher_class_single_member_and_leading) {

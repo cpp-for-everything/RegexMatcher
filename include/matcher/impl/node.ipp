@@ -247,7 +247,7 @@ namespace {
 		// no node has one. The wildcard and epsilon lookups are skipped where compile()
 		// established there is nothing to find, which is nearly always.
 		const size_t class_count =
-		    this->compiled ? (this->class_data ? this->class_data->edges.size() : 0) : this->neighbours.size();
+		    this->compiled ? (this->extras ? this->extras->edges.size() : 0) : this->neighbours.size();
 		for (size_t candidate = 0; candidate < 3 + class_count; ++candidate) {
 			const EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>* edge_ptr = nullptr;
 			bool consumes = true;
@@ -271,7 +271,7 @@ namespace {
 				// way, so an uncompiled matcher still answers the same.
 				const size_t which = candidate - 3;
 				if (this->compiled) {
-					edge_ptr = this->class_data->edges[which];
+					edge_ptr = this->extras->edges[which];
 				} else {
 					auto it = this->neighbours.begin();
 					std::advance(it, static_cast<std::ptrdiff_t>(which));
@@ -293,7 +293,7 @@ namespace {
 				// the comment there: when the arriving set is everything alive at this
 				// node and nothing on the edge can prune it, the surviving set is the
 				// edge's own precomputed run and there is nothing to rebuild.
-				const bool fast = this->compiled && paths_is_live && !edge.has_limits;
+				const bool fast = this->compiled && paths_is_live && !edge.has_limits && !this->has_repeat_bounds;
 
 				std::vector<RegexData> built;
 				if (!fast) {
@@ -314,6 +314,12 @@ namespace {
 							if (ind == paths.size()) {
 								break;
 							}
+						}
+						// A repeat still owing iterations cannot be stepped out of. Free
+						// where no repeat here has a lower bound, which is every node the
+						// router generates.
+						if (!this->repeat_satisfied(pathId, limits_ptr, limit_state)) {
+							continue;
 						}
 						if (prev == nullptr || paths[ind] == pathId) {
 							built.push_back(pathId);
@@ -442,7 +448,7 @@ namespace {
 		// no node has one. The wildcard and epsilon lookups are skipped where compile()
 		// established there is nothing to find, which is nearly always.
 		const size_t class_count =
-		    this->compiled ? (this->class_data ? this->class_data->edges.size() : 0) : this->neighbours.size();
+		    this->compiled ? (this->extras ? this->extras->edges.size() : 0) : this->neighbours.size();
 		for (size_t candidate = 0; candidate < 3 + class_count; ++candidate) {
 			const EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>* edge_ptr = nullptr;
 			bool consumes = true;
@@ -466,7 +472,7 @@ namespace {
 				// way, so an uncompiled matcher still answers the same.
 				const size_t which = candidate - 3;
 				if (this->compiled) {
-					edge_ptr = this->class_data->edges[which];
+					edge_ptr = this->extras->edges[which];
 				} else {
 					auto it = this->neighbours.begin();
 					std::advance(it, static_cast<std::ptrdiff_t>(which));
@@ -496,7 +502,7 @@ namespace {
 				// This is what stops a lookup costing one pass over the route table per
 				// character. Along a shared prefix the arriving set is the whole table,
 				// and rebuilding it at every character was the entire cost.
-				const bool fast = this->compiled && paths_is_live && !edge.has_limits;
+				const bool fast = this->compiled && paths_is_live && !edge.has_limits && !this->has_repeat_bounds;
 
 				std::vector<RegexData> built;
 				if (!fast) {
@@ -517,6 +523,12 @@ namespace {
 							if (ind == paths.size()) {
 								break;
 							}
+						}
+						// A repeat still owing iterations cannot be stepped out of. Free
+						// where no repeat here has a lower bound, which is every node the
+						// router generates.
+						if (!this->repeat_satisfied(pathId, limits_ptr, limit_state)) {
+							continue;
 						}
 						if (prev == nullptr || paths[ind] == pathId) {
 							built.push_back(pathId);

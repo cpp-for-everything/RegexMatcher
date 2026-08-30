@@ -23,6 +23,7 @@ namespace matcher {
 
 		auto answer_unique = std::make_unique<Limits>(Limits::common_edge);
 		auto answer = answer_unique.get();
+		answer->from_quantifier = true;
 		limits_storage.push_back(std::move(answer_unique));
 
 		bool min = true;
@@ -47,6 +48,10 @@ namespace matcher {
 			answer->max = std::nullopt;
 		}
 		if (min) {
+			// {n}, with no comma. This set the upper bound and left the lower one at the
+			// zero it was constructed with, so {3} meant "up to three" and a[0-9]{3}z
+			// matched az. Both bounds are the same number in this form.
+			answer->min = number;
 			answer->max = number;
 		}
 
@@ -151,7 +156,7 @@ namespace matcher {
 			nodes_storage.push_back(
 			    std::make_unique<Node<RegexData, char_t>>(symbol<char_t>::of_class(++class_counter)));
 			node = nodes_storage.back().get();
-			node->ensure_class_data().members = std::move(members);
+			node->ensure_extras().members = std::move(members);
 		}
 
 		std::vector<Node<RegexData, char_t>*> leafs{node};
@@ -372,14 +377,23 @@ namespace matcher {
 			// Class edges cannot be found by key, since the key is the class rather than
 			// the character being read, so they are gathered here and scanned. Almost no
 			// node has one, and none has many.
-			if (node.class_data) {
-				node.class_data->edges.clear();
+			if (node.extras) {
+				node.extras->edges.clear();
+				node.extras->repeats.clear();
 			}
 			for (const auto& [sym, edge] : node.neighbours) {
 				if (sym.is_class()) {
-					node.ensure_class_data().edges.push_back(&edge);
+					node.ensure_extras().edges.push_back(&edge);
+				}
+				// Which repeats leaving here could cut short. Only bounds above zero can:
+				// a + or a * is already satisfied by the edge that entered it.
+				for (const auto& [id, limit] : edge.paths) {
+					if (limit.has_value() && limit.value()->from_quantifier && limit.value()->min > 0) {
+						node.ensure_extras().repeats.emplace_back(id, limit.value());
+					}
 				}
 			}
+			node.has_repeat_bounds = node.extras && !node.extras->repeats.empty();
 			node.compiled = true;
 		};
 		flag_edges(root);

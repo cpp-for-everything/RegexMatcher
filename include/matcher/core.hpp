@@ -290,6 +290,15 @@ namespace {
 		size_t min;
 		std::optional<size_t> max;
 
+		/// Whether this came from a written quantifier -- {n,m}, +, * or ? -- rather
+		/// than from connect_with counting how often one pattern reuses an edge.
+		///
+		/// The two look alike and are not. A quantifier's lower bound is a promise about
+		/// the input and has to be kept. The reuse count is bookkeeping across a
+		/// pattern's alternation branches, where only one branch is ever taken, so
+		/// demanding every traversal it counted would reject the pattern's own text.
+		bool from_quantifier = false;
+
 		Limits() : Limits(0, std::nullopt) {}
 
 		Limits(size_t min, std::nullopt_t) {
@@ -584,12 +593,12 @@ namespace {
 		 */
 		symbol<char_t> current_symbol;
 
-		/// Everything to do with character classes, allocated only where there is any.
+		/// The parts only some nodes need, allocated only where there is any.
 		///
-		/// Two empty vectors on every node cost forty bytes apiece, and a table of ten
+		/// Empty vectors on every node cost forty bytes apiece, and a table of ten
 		/// thousand routes has hundreds of thousands of nodes of which a handful touch a
-		/// class at all. Behind one pointer it is eight bytes on the nodes that do not.
-		struct ClassData {
+		/// class or a repeat. Behind one pointer it is eight bytes on the rest.
+		struct NodeExtras {
 			/// The characters this node accepts, sorted, when its symbol is a class. One
 			/// node stands for the whole class instead of one per member.
 			std::vector<char_t> members;
@@ -597,23 +606,60 @@ namespace {
 			/// The class edges leaving this node, gathered by compile() so matching does
 			/// not have to scan every neighbour looking for them.
 			std::vector<const EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>*> edges;
-		};
-		std::unique_ptr<ClassData> class_data;
 
-		ClassData& ensure_class_data() {
-			if (!class_data) {
-				class_data = std::make_unique<ClassData>();
+			/// Repeats that leaving this node could cut short: one entry per pattern that
+			/// has an edge here carrying a lower bound above zero.
+			///
+			/// A repeat's lower bound used to be checked only where a pattern ends, so a
+			/// repeat that exits into more pattern was never asked whether it had run its
+			/// minimum, and a[0-9]{2,3}c matched a1c. Leaving is exactly when the question
+			/// has to be asked, and this is what a node needs to ask it.
+			///
+			/// Only bounds above zero are recorded, so a plain + or * -- which the router
+			/// generates and which requires nothing beyond the edge that enters it --
+			/// leaves this empty and costs nothing.
+			std::vector<std::pair<RegexData, Limits*>> repeats;
+		};
+		std::unique_ptr<NodeExtras> extras;
+
+		NodeExtras& ensure_extras() {
+			if (!extras) {
+				extras = std::make_unique<NodeExtras>();
 			}
-			return *class_data;
+			return *extras;
 		}
 
 		const std::vector<char_t>& class_members() const {
 			static const std::vector<char_t> none;
-			return class_data ? class_data->members : none;
+			return extras ? extras->members : none;
 		}
 
 		bool accepts(char_t c) const {
-			return class_data && std::binary_search(class_data->members.begin(), class_data->members.end(), c);
+			return extras && std::binary_search(extras->members.begin(), extras->members.end(), c);
+		}
+
+		/// Whether `pathId` may leave this node along an edge governed by `taking`.
+		///
+		/// It may not if some repeat here still owes iterations: a pattern inside
+		/// [0-9]{2,3} that has consumed one digit cannot step out into whatever follows.
+		/// Continuing the same repeat is always allowed; that is not leaving it.
+		bool repeat_satisfied(const RegexData& pathId, const std::optional<Limits*>& taking,
+		                      const LimitState& state) const {
+			if (!extras) {
+				return true;
+			}
+			for (const auto& [id, limit] : extras->repeats) {
+				if (id != pathId) {
+					continue;
+				}
+				if (taking.has_value() && taking.value() == limit) {
+					continue;
+				}
+				if (state.current(limit).min > 0) {
+					return false;
+				}
+			}
+			return true;
 		}
 
 		/// Whether this node has a wildcard edge or an epsilon edge at all.
@@ -623,6 +669,11 @@ namespace {
 		/// were pure cost. Set by compile().
 		bool has_any_edge = false;
 		bool has_none_edge = false;
+
+		/// Whether any repeat here carries a lower bound, so leaving has to be checked.
+		/// A plain flag because the fast path below has to consult it per edge, and a
+		/// route table sets it nowhere.
+		bool has_repeat_bounds = false;
 
 		/// Whether compile() has run over this node. False means every edge takes the
 		/// general path, which is what the matcher did before any of this existed.
