@@ -2,6 +2,7 @@
 
 #include "RegexMatcherConfig.h"
 
+#include <algorithm>
 #include <set>
 #include <map>
 #include <list>
@@ -276,6 +277,32 @@ namespace {
 		    paths;  // each path may have different requirements for how many times should the edge be repeated.
 		std::map<T, std::vector<TagAction>> tag_actions;  // tag actions per regex path for capture tracking
 		Node* to;
+
+		// --- filled by RegexMatcher::compile, read only while matching -------
+		//
+		// Matching used to rebuild the set of still-live regexes at every character by
+		// intersecting the arriving set with this edge's. Along a shared prefix that
+		// set is every regex in the table, so a lookup cost one pass over the whole
+		// table per character: at a thousand routes under /api/v1/ it was measured at
+		// nine thousand map-node visits for one match.
+		//
+		// None of that work depends on the input. Which regexes an edge keeps alive is
+		// a property of the graph, so it is computed once here and the walk just reads
+		// it.
+
+		/// This edge's keys, sorted, in one cache-friendly run rather than a red-black
+		/// tree. Handed straight to the next frame when the fast path applies, so a
+		/// deterministic step allocates nothing.
+		std::vector<T> ids;
+
+		/// Whether any path on this edge carries a repeat limit. When none does, no
+		/// path can be pruned here and the arriving set passes through untouched.
+		bool has_limits = false;
+
+		/// Whether `ids` is exactly the set alive at `to`. When it is, the next frame's
+		/// arriving set is again a full node set and the fast path continues.
+		bool gives_full_child = false;
+
 		EdgeInfo() = default;
 		EdgeInfo(const EdgeInfo& info) {
 			for (auto x : info.paths) {
@@ -289,6 +316,12 @@ namespace {
 				tag_actions[x.first] = x.second;
 			}
 			to = info.to;
+			// Deliberately not copied. A copied edge belongs to a graph that is still
+			// being built, and stale derived data is worse than none: compile() sets
+			// it, and until then every edge takes the general path.
+			ids.clear();
+			has_limits = false;
+			gives_full_child = false;
 		}
 		EdgeInfo(EdgeInfo&&) = delete;
 	};
@@ -365,6 +398,16 @@ namespace {
 		 *
 		 */
 		symbol<char_t> current_symbol;
+
+		/// Whether compile() has run over this node. False means every edge takes the
+		/// general path, which is what the matcher did before any of this existed.
+		///
+		/// The set of regexes alive at a node is what compile() reasons about, but it
+		/// is not kept: only the per-edge answer derived from it is needed at match
+		/// time, and along a shared prefix that set is the whole route table, so
+		/// storing one per node would have cost more memory than the structure it was
+		/// speeding up.
+		bool compiled = false;
 
 	public:
 		/**
@@ -447,7 +490,7 @@ namespace {
 
 		template <typename ConstIterator>
 		std::vector<RegexData> match_helper(ConstIterator, ConstIterator, const std::vector<RegexData>&, const Node*,
-		                                    LimitState&) const;
+		                                    LimitState&, bool paths_is_live = false) const;
 
 		/**
 		 * @brief Matches a string with all regexes and returns matches with captured groups
@@ -460,11 +503,15 @@ namespace {
 		template <typename ConstIterator>
 		std::vector<matcher::MatchResult<RegexData>> match_with_groups(ConstIterator begin, ConstIterator end) const;
 
+		// paths_is_live says the arriving set is exactly this node's `live` set, which
+		// is what lets a step skip rebuilding it. False is always safe: it only costs
+		// the general path.
 		template <typename ConstIterator>
 		void match_with_groups_helper(ConstIterator begin, ConstIterator end, size_t position,
 		                              const std::vector<RegexData>& paths, const Node* prev,
 		                              std::map<RegexData, CaptureSlots>& capture_slots, LimitState& limit_state,
-		                              std::vector<matcher::MatchResult<RegexData>>& results) const;
+		                              std::vector<matcher::MatchResult<RegexData>>& results,
+		                              bool paths_is_live = false) const;
 
 #ifdef DEBUG
 		void print_helper(size_t layer, std::set<const Node<RegexData, char_t>*>& traversed,
@@ -530,6 +577,29 @@ namespace matcher {
 		 */
 		template <typename Iterable>
 		void add_regex(Iterable, RegexData);
+
+		/**
+		 * @brief Precomputes what the walk would otherwise recompute per character
+		 *
+		 * Which regexes stay alive through an edge does not depend on the input, so it
+		 * does not belong in the inner loop. This walks the graph once and records, per
+		 * node, the set of regexes alive there, and per edge, whether taking it leaves
+		 * that set whole. A match can then follow a deterministic path without touching
+		 * the set at all, which is the difference between a lookup that costs one pass
+		 * over the route table per character and one that does not.
+		 *
+		 * Explicit rather than lazy, on purpose. Doing it on the first match would mean
+		 * mutating the graph from a const call that several threads may be in at once,
+		 * which is the shape of bug this matcher has just had fixed once. add_regex is
+		 * already a build-time operation and matching is already const, so "build, then
+		 * compile, then share" is the contract the class already had; this only names
+		 * the middle step.
+		 *
+		 * Matching without it is correct and takes the general path, which is what the
+		 * matcher did before this existed. Safe to call repeatedly, and cheap when
+		 * nothing has changed.
+		 */
+		void compile();
 
 		/**
 		 * @brief Matches a string with all added regexes

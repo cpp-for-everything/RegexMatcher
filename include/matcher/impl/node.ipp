@@ -181,14 +181,15 @@ namespace {
 	template <typename ConstIterator>
 	std::vector<RegexData> Node<RegexData, char_t>::match(ConstIterator begin, ConstIterator end) const {
 		LimitState limit_state;
-		return match_helper(begin, end, {}, nullptr, limit_state);
+		// Every regex is alive at the root; see match_with_groups for the reasoning.
+		return match_helper(begin, end, {}, nullptr, limit_state, true);
 	}
 
 	template <typename RegexData, typename char_t>
 	template <typename ConstIterator>
 	std::vector<RegexData> Node<RegexData, char_t>::match_helper(ConstIterator begin, ConstIterator end,
 	                                                             const std::vector<RegexData>& paths, const Node* prev,
-	                                                             LimitState& limit_state) const {
+	                                                             LimitState& limit_state, bool paths_is_live) const {
 		if (begin == end) {
 			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
 				std::vector<RegexData> answer;
@@ -228,38 +229,54 @@ namespace {
 		const symbol<char_t> current = symbol<char_t>(*begin);
 		for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
 			if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
-				size_t ind = 0;
-				std::vector<RegexData> new_paths;
-				new_paths.reserve(paths.size());
+				const auto& edge = it->second;
 				std::vector<std::pair<const Limits*, Limits>> saved_limits;
-				for (const auto [pathId, limits_ptr] : it->second.paths) {
-					if (limits_ptr.has_value() && !limit_state.current(limits_ptr.value()).is_allowed_to_repeat()) {
-						continue;
-					}
-					if (prev != nullptr) {
-						if (paths[ind] > pathId) {
+
+				// Same shortcut as match_with_groups_helper, for the same reason. See
+				// the comment there: when the arriving set is everything alive at this
+				// node and nothing on the edge can prune it, the surviving set is the
+				// edge's own precomputed run and there is nothing to rebuild.
+				const bool fast = this->compiled && paths_is_live && !edge.has_limits;
+
+				std::vector<RegexData> built;
+				if (!fast) {
+					size_t ind = 0;
+					built.reserve(paths.size());
+					for (const auto [pathId, limits_ptr] : edge.paths) {
+						if (limits_ptr.has_value() &&
+						    !limit_state.current(limits_ptr.value()).is_allowed_to_repeat()) {
 							continue;
 						}
-						while (ind < paths.size() && paths[ind] < pathId) {
-							ind++;
+						if (prev != nullptr) {
+							if (paths[ind] > pathId) {
+								continue;
+							}
+							while (ind < paths.size() && paths[ind] < pathId) {
+								ind++;
+							}
+							if (ind == paths.size()) {
+								break;
+							}
 						}
-						if (ind == paths.size()) {
-							break;
+						if (prev == nullptr || paths[ind] == pathId) {
+							built.push_back(pathId);
+							if (!limits_ptr.has_value()) {
+								continue;
+							}
+							saved_limits.emplace_back(limits_ptr.value(),
+							                          limit_state.consume(limits_ptr.value()));
 						}
-					}
-					if (prev == nullptr || paths[ind] == pathId) {
-						new_paths.push_back(pathId);
-						if (!limits_ptr.has_value()) {
-							continue;
-						}
-						saved_limits.emplace_back(limits_ptr.value(), limit_state.consume(limits_ptr.value()));
 					}
 				}
+
+				const std::vector<RegexData>& new_paths = fast ? edge.ids : built;
+				const bool next_is_live = fast && edge.gives_full_child;
+
 				if (!new_paths.empty()) {
 					if (to_test != symbol<char_t>::None) {
 						begin++;
 					}
-					for (auto match : it->second.to->match_helper(begin, end, new_paths, this, limit_state)) {
+					for (auto match : edge.to->match_helper(begin, end, new_paths, this, limit_state, next_is_live)) {
 						answer.push_back(match);
 					}
 					if (to_test != symbol<char_t>::None) {
@@ -281,7 +298,10 @@ namespace {
 		std::vector<matcher::MatchResult<RegexData>> results;
 		std::map<RegexData, CaptureSlots> capture_slots;
 		LimitState limit_state;
-		match_with_groups_helper(begin, end, 0, {}, nullptr, capture_slots, limit_state, results);
+		// Every regex is alive at the root, which is exactly what paths_is_live claims,
+		// so the walk can start on the fast path. (The general path says the same thing
+		// a longer way: with prev == nullptr it accepts every id on the edge.)
+		match_with_groups_helper(begin, end, 0, {}, nullptr, capture_slots, limit_state, results, true);
 		return results;
 	}
 
@@ -290,7 +310,7 @@ namespace {
 	void Node<RegexData, char_t>::match_with_groups_helper(
 	    ConstIterator begin, ConstIterator end, size_t position, const std::vector<RegexData>& paths, const Node* prev,
 	    std::map<RegexData, CaptureSlots>& capture_slots, LimitState& limit_state,
-	    std::vector<matcher::MatchResult<RegexData>>& results) const {
+	    std::vector<matcher::MatchResult<RegexData>>& results, bool paths_is_live) const {
 		if (begin == end) {
 			// Check for end-of-regex marker
 			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
@@ -340,34 +360,59 @@ namespace {
 		const symbol<char_t> current = symbol<char_t>(*begin);
 		for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
 			if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
-				size_t ind = 0;
-				std::vector<RegexData> new_paths;
-				new_paths.reserve(paths.size());
+				const auto& edge = it->second;
 				std::vector<std::pair<const Limits*, Limits>> saved_limits;
 
-				for (const auto& [pathId, limits_ptr] : it->second.paths) {
-					if (limits_ptr.has_value() && !limit_state.current(limits_ptr.value()).is_allowed_to_repeat()) {
-						continue;
-					}
-					if (prev != nullptr) {
-						if (paths[ind] > pathId) {
+				// The set surviving this edge is the arriving set intersected with the
+				// edge's own. When the arriving set is everything alive at this node,
+				// that intersection is the edge's set unchanged, because every path on
+				// an outgoing edge is by construction alive at the node it leaves. So
+				// there is nothing to compute: hand the precomputed run down as it is.
+				//
+				// Only repeat limits can take paths off an edge, so an edge carrying
+				// none cannot narrow the set either. compile() records both facts.
+				//
+				// This is what stops a lookup costing one pass over the route table per
+				// character. Along a shared prefix the arriving set is the whole table,
+				// and rebuilding it at every character was the entire cost.
+				const bool fast = this->compiled && paths_is_live && !edge.has_limits;
+
+				std::vector<RegexData> built;
+				if (!fast) {
+					size_t ind = 0;
+					built.reserve(paths.size());
+					for (const auto& [pathId, limits_ptr] : edge.paths) {
+						if (limits_ptr.has_value() &&
+						    !limit_state.current(limits_ptr.value()).is_allowed_to_repeat()) {
 							continue;
 						}
-						while (ind < paths.size() && paths[ind] < pathId) {
-							ind++;
+						if (prev != nullptr) {
+							if (paths[ind] > pathId) {
+								continue;
+							}
+							while (ind < paths.size() && paths[ind] < pathId) {
+								ind++;
+							}
+							if (ind == paths.size()) {
+								break;
+							}
 						}
-						if (ind == paths.size()) {
-							break;
+						if (prev == nullptr || paths[ind] == pathId) {
+							built.push_back(pathId);
+							if (!limits_ptr.has_value()) {
+								continue;
+							}
+							saved_limits.emplace_back(limits_ptr.value(),
+							                          limit_state.consume(limits_ptr.value()));
 						}
-					}
-					if (prev == nullptr || paths[ind] == pathId) {
-						new_paths.push_back(pathId);
-						if (!limits_ptr.has_value()) {
-							continue;
-						}
-						saved_limits.emplace_back(limits_ptr.value(), limit_state.consume(limits_ptr.value()));
 					}
 				}
+
+				const std::vector<RegexData>& new_paths = fast ? edge.ids : built;
+				// Whether the next frame may use the fast path in turn. Only when this
+				// edge hands over exactly what is alive there; anything narrower and
+				// the next node's own set is no longer the right answer.
+				const bool next_is_live = fast && edge.gives_full_child;
 
 				if (!new_paths.empty()) {
 					// Track undo operations for efficient backtracking (avoid full map copy)
@@ -376,16 +421,24 @@ namespace {
 
 					// Process tag actions for this edge transition
 					// Tag actions are executed BEFORE consuming the current character
-					for (RegexData pathId : new_paths) {
-						if (auto actions_it = it->second.tag_actions.find(pathId);
-						    actions_it != it->second.tag_actions.end()) {
-							for (const auto& action : actions_it->second) {
-								if (action.is_open()) {
-									size_t prev = capture_slots[pathId].open_group(action.group_id, position);
-									undo_stack.emplace_back(pathId, action.group_id, true, prev);
-								} else {
-									size_t prev = capture_slots[pathId].close_group(action.group_id, position);
-									undo_stack.emplace_back(pathId, action.group_id, false, prev);
+					//
+					// Guarded, because most edges carry none. Every character of a
+					// literal prefix used to cost one map lookup per live regex looking
+					// for actions that were never there: at a thousand routes sharing
+					// /api/v1/ that was nine thousand lookups per match, the same count
+					// as the path walk itself.
+					if (!it->second.tag_actions.empty()) {
+						for (RegexData pathId : new_paths) {
+							if (auto actions_it = it->second.tag_actions.find(pathId);
+							    actions_it != it->second.tag_actions.end()) {
+								for (const auto& action : actions_it->second) {
+									if (action.is_open()) {
+										size_t prev = capture_slots[pathId].open_group(action.group_id, position);
+										undo_stack.emplace_back(pathId, action.group_id, true, prev);
+									} else {
+										size_t prev = capture_slots[pathId].close_group(action.group_id, position);
+										undo_stack.emplace_back(pathId, action.group_id, false, prev);
+									}
 								}
 							}
 						}
@@ -397,8 +450,8 @@ namespace {
 						next_begin++;
 					}
 
-					it->second.to->match_with_groups_helper(next_begin, end, next_position, new_paths, this,
-					                                        capture_slots, limit_state, results);
+					edge.to->match_with_groups_helper(next_begin, end, next_position, new_paths, this, capture_slots,
+					                                  limit_state, results, next_is_live);
 
 					// Undo capture slot changes (reverse order)
 					for (auto rit = undo_stack.rbegin(); rit != undo_stack.rend(); ++rit) {

@@ -30,6 +30,11 @@ void test_for(std::vector<std::string> regexes, std::vector<std::string> texts) 
 		total = total + (t2 - t1);
 		alternative = alternative + (t3 - t2);
 	}
+	// Compiled before matching, so these cases exercise the precomputed fast path
+	// rather than only the general one. Every case here is checked against std::regex,
+	// which makes this suite the oracle for that optimisation.
+	root.compile();
+
 	for (auto text : texts) {
 		const auto t1 = high_resolution_clock::now();
 		const auto answer = root.match(text);

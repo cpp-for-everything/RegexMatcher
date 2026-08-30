@@ -247,6 +247,79 @@ namespace matcher {
 		std::vector<TagAction> pending_actions;
 		process(std::vector{&root}, uid, it, std::cend(str), false, group_counter, pending_actions, nodes_storage,
 		        limits_storage);
+		// Whatever compile() worked out no longer describes this graph. Cleared rather
+		// than updated: a partially stale fast path would silently drop matches, and
+		// clearing costs one flag per node against a build that is already the
+		// expensive half of this class.
+		root.compiled = false;
+		for (auto& node : nodes_storage) node->compiled = false;
+	}
+
+	template <typename RegexData, typename char_t>
+	void RegexMatcher<RegexData, char_t>::compile() {
+		if (root.compiled) {
+			return;
+		}
+
+		// Pass one: per edge, the sorted key run and whether anything on it carries a
+		// repeat limit. std::map iterates in key order, so `ids` comes out sorted for
+		// free.
+		auto describe_edges = [](Node<RegexData, char_t>& node) {
+			for (auto& [sym, edge] : node.neighbours) {
+				edge.ids.clear();
+				edge.ids.reserve(edge.paths.size());
+				edge.has_limits = false;
+				for (const auto& [id, limit] : edge.paths) {
+					edge.ids.push_back(id);
+					if (limit.has_value()) {
+						edge.has_limits = true;
+					}
+				}
+			}
+		};
+		describe_edges(root);
+		for (auto& node : nodes_storage) {
+			describe_edges(*node);
+		}
+
+		// Pass two: does taking an edge hand over exactly what is alive at the far end?
+		//
+		// Alive at a node means the union of its outgoing edges' keys, the end-of-regex
+		// edge included, since a regex ending there is still alive there.
+		//
+		// The unions are cached for the length of this call and then dropped. Cached
+		// because a node with many edges pointing into it would otherwise have its
+		// union rebuilt once per incoming edge, which made compiling a thousand-route
+		// table five times slower than building it. Dropped because along a shared
+		// prefix that union is the whole route table, and keeping one per node
+		// permanently would cost more memory than the lookup speed is worth.
+		std::map<const Node<RegexData, char_t>*, std::vector<RegexData>> live_cache;
+
+		auto live_at = [&live_cache](const Node<RegexData, char_t>* node) -> const std::vector<RegexData>& {
+			auto it = live_cache.find(node);
+			if (it != live_cache.end()) {
+				return it->second;
+			}
+			std::vector<RegexData> live;
+			for (const auto& [child_sym, child_edge] : node->neighbours) {
+				live.insert(live.end(), child_edge.ids.begin(), child_edge.ids.end());
+			}
+			std::sort(live.begin(), live.end());
+			live.erase(std::unique(live.begin(), live.end()), live.end());
+			return live_cache.emplace(node, std::move(live)).first->second;
+		};
+
+		auto flag_edges = [&live_at](Node<RegexData, char_t>& node) {
+			for (auto& [sym, edge] : node.neighbours) {
+				edge.gives_full_child = (edge.to != nullptr) && (edge.ids == live_at(edge.to));
+			}
+			node.compiled = true;
+		};
+		flag_edges(root);
+		for (auto& node : nodes_storage) {
+			flag_edges(*node);
+		}
+
 	}
 
 	template <typename RegexData, typename char_t>
