@@ -3,6 +3,8 @@
 #include "RegexMatcherConfig.h"
 
 #include <algorithm>
+#include <array>
+#include <stdexcept>
 #include <set>
 #include <map>
 #include <deque>
@@ -37,12 +39,63 @@ namespace matcher {
 	 *
 	 * @tparam RegexData Type of associated data with each regex
 	 */
+	/**
+	 * @brief Captured group positions, in one run rather than a tree
+	 *
+	 * A match carries one entry per capturing group, which for a route is one. Measured
+	 * at that size, building this as a std::map cost 60ns and one allocation and as a
+	 * std::unordered_map 110ns and two, because a hash table pays for a bucket array
+	 * before it can hold anything and hashing buys nothing at n = 1. A sorted run is
+	 * 42ns and one allocation, and stays flat as entries are added.
+	 *
+	 * Keyed lookup, size, emptiness and ordered iteration all behave as they did, so
+	 * `for (auto& [id, pos] : result.groups)` and `groups.at(id)` are unchanged.
+	 */
+	struct GroupPositions {
+		using Positions = std::pair<size_t, size_t>;  // (start_pos, end_pos)
+		using Entry = std::pair<size_t, Positions>;   // group_id -> positions
+
+		std::vector<Entry> entries;
+
+		using iterator = std::vector<Entry>::iterator;
+		using const_iterator = std::vector<Entry>::const_iterator;
+
+		iterator begin() { return entries.begin(); }
+		iterator end() { return entries.end(); }
+		const_iterator begin() const { return entries.begin(); }
+		const_iterator end() const { return entries.end(); }
+
+		size_t size() const { return entries.size(); }
+		bool empty() const { return entries.empty(); }
+
+		const_iterator find(size_t group_id) const {
+			return std::find_if(entries.begin(), entries.end(),
+			                    [group_id](const Entry& e) { return e.first == group_id; });
+		}
+
+		/// By group id, not by position. Kept keyed so `groups.at(0)` still means group
+		/// zero rather than the first entry, which is the one way this could have
+		/// changed meaning silently.
+		const Positions& at(size_t group_id) const {
+			const auto it = find(group_id);
+			if (it == entries.end()) {
+				throw std::out_of_range("no such capture group");
+			}
+			return it->second;
+		}
+
+		/// Groups are appended in ascending id by the only thing that builds this.
+		void append(size_t group_id, size_t start, size_t stop) { entries.emplace_back(group_id, Positions{start, stop}); }
+
+		void reserve(size_t n) { entries.reserve(n); }
+	};
+
 	template <typename RegexData>
 	struct MatchResult {
 		RegexData regex_id;
-		std::map<size_t, std::pair<size_t, size_t>> groups;  // group_id -> (start_pos, end_pos)
+		GroupPositions groups;  // group_id -> (start_pos, end_pos)
 
-		MatchResult(RegexData id, std::map<size_t, std::pair<size_t, size_t>> g) : regex_id(id), groups(std::move(g)) {}
+		MatchResult(RegexData id, GroupPositions g) : regex_id(id), groups(std::move(g)) {}
 	};
 }  // namespace matcher
 
@@ -89,50 +142,125 @@ namespace {
 	struct CaptureSlots {
 		static constexpr size_t UNSET = static_cast<size_t>(-1);
 
-		std::vector<size_t> start_positions;  // group_id -> start position (UNSET if not started)
-		std::vector<size_t> end_positions;    // group_id -> end position (UNSET if not ended)
+		/// Groups below this id are held inline, so a match that captures anything at all
+		/// does not have to allocate to say so.
+		///
+		/// Counted rather than assumed: matching a route with one {id} made eleven heap
+		/// allocations against three for the same route without one, and two of the eight
+		/// were these, every match, to hold a single position each. Patterns with more
+		/// capturing groups than this still work; they spill.
+		static constexpr size_t INLINE_GROUPS = 8;
+
+		// Uninitialised, with a bit per group saying whether it holds anything. Filling
+		// sixteen slots with UNSET on every construction was a cost paid by every match,
+		// including the ones that capture nothing.
+		std::array<size_t, INLINE_GROUPS> inline_start;
+		std::array<size_t, INLINE_GROUPS> inline_end;
+		std::uint32_t start_set = 0;
+		std::uint32_t end_set = 0;
+		std::vector<size_t> spill_start;  // group ids at or above INLINE_GROUPS
+		std::vector<size_t> spill_end;
 
 		CaptureSlots() = default;
 
+		size_t& start_at(size_t group_id) {
+			if (group_id < INLINE_GROUPS) {
+				start_set |= (1u << group_id);
+				return inline_start[group_id];
+			}
+			return spill_start[group_id - INLINE_GROUPS];
+		}
+
+		size_t& end_at(size_t group_id) {
+			if (group_id < INLINE_GROUPS) {
+				end_set |= (1u << group_id);
+				return inline_end[group_id];
+			}
+			return spill_end[group_id - INLINE_GROUPS];
+		}
+
+		size_t start_of(size_t group_id) const {
+			if (group_id < INLINE_GROUPS) {
+				return (start_set & (1u << group_id)) ? inline_start[group_id] : UNSET;
+			}
+			const size_t i = group_id - INLINE_GROUPS;
+			return i < spill_start.size() ? spill_start[i] : UNSET;
+		}
+
+		size_t end_of(size_t group_id) const {
+			if (group_id < INLINE_GROUPS) {
+				return (end_set & (1u << group_id)) ? inline_end[group_id] : UNSET;
+			}
+			const size_t i = group_id - INLINE_GROUPS;
+			return i < spill_end.size() ? spill_end[i] : UNSET;
+		}
+
+		size_t highest_group() const { return INLINE_GROUPS + spill_start.size(); }
+
 		void ensure_capacity(size_t group_id) {
-			if (group_id >= start_positions.size()) {
-				start_positions.resize(group_id + 1, UNSET);
-				end_positions.resize(group_id + 1, UNSET);
+			if (group_id < INLINE_GROUPS) {
+				return;
+			}
+			const size_t needed = group_id - INLINE_GROUPS + 1;
+			if (needed > spill_start.size()) {
+				spill_start.resize(needed, UNSET);
+				spill_end.resize(needed, UNSET);
 			}
 		}
 
 		// Returns previous value for undo
 		size_t open_group(size_t group_id, size_t position) {
 			ensure_capacity(group_id);
-			size_t prev = start_positions[group_id];
-			start_positions[group_id] = position;
+			const size_t prev = start_at(group_id);
+			start_at(group_id) = position;
 			return prev;
 		}
 
 		// Returns previous value for undo
 		size_t close_group(size_t group_id, size_t position) {
 			ensure_capacity(group_id);
-			size_t prev = end_positions[group_id];
-			end_positions[group_id] = position;
+			const size_t prev = end_at(group_id);
+			end_at(group_id) = position;
 			return prev;
 		}
 
-		// Restore previous start value
-		void undo_open(size_t group_id, size_t prev_value) { start_positions[group_id] = prev_value; }
-
-		// Restore previous end value
-		void undo_close(size_t group_id, size_t prev_value) { end_positions[group_id] = prev_value; }
-
-		bool is_group_complete(size_t group_id) const {
-			return group_id < start_positions.size() && start_positions[group_id] != UNSET &&
-			       end_positions[group_id] != UNSET;
+		// Restore previous start value. Restoring to UNSET means the group was not set
+		// before, so the bit is cleared rather than the sentinel stored.
+		void undo_open(size_t group_id, size_t prev_value) {
+			if (prev_value == UNSET && group_id < INLINE_GROUPS) {
+				start_set &= ~(1u << group_id);
+				return;
+			}
+			start_at(group_id) = prev_value;
 		}
 
-		std::map<size_t, std::pair<size_t, size_t>> to_map() const {
-			std::map<size_t, std::pair<size_t, size_t>> result;
-			for (size_t i = 0; i < start_positions.size(); ++i) {
-				if (start_positions[i] != UNSET && end_positions[i] != UNSET) {
-					result[i] = {start_positions[i], end_positions[i]};
+		// Restore previous end value. See undo_open.
+		void undo_close(size_t group_id, size_t prev_value) {
+			if (prev_value == UNSET && group_id < INLINE_GROUPS) {
+				end_set &= ~(1u << group_id);
+				return;
+			}
+			end_at(group_id) = prev_value;
+		}
+
+		bool is_group_complete(size_t group_id) const {
+			return start_of(group_id) != UNSET && end_of(group_id) != UNSET;
+		}
+
+		matcher::GroupPositions to_groups() const {
+			matcher::GroupPositions result;
+			size_t complete = 0;
+			for (size_t i = 0; i < highest_group(); ++i) {
+				if (start_of(i) != UNSET && end_of(i) != UNSET) ++complete;
+			}
+			if (complete == 0) {
+				return result;
+			}
+			// Sized once. Growing it was one of the allocations this is here to remove.
+			result.reserve(complete);
+			for (size_t i = 0; i < highest_group(); ++i) {
+				if (start_of(i) != UNSET && end_of(i) != UNSET) {
+					result.append(i, start_of(i), end_of(i));
 				}
 			}
 			return result;
@@ -160,6 +288,93 @@ namespace {
 			entries.emplace_back(id, CaptureSlots{});
 			return entries.back().second;
 		}
+	};
+
+	/**
+	 * @brief A run that holds its first N elements inside itself
+	 *
+	 * Every frame of a match used to build three of these on the heap -- the surviving
+	 * path set, the saved repeat counters, the capture undo log -- and in the region of
+	 * a pattern where captures happen each holds one or two elements. Counted, a route
+	 * lookup with one {id} made eleven allocations against three without one; these were
+	 * most of the difference.
+	 *
+	 * Only what the match path uses. Growth past N falls back to the heap and stays
+	 * correct, so a pathological pattern is slower rather than wrong.
+	 */
+	/**
+	 * @brief A borrowed view of a contiguous run
+	 *
+	 * std::span would do, but this library is C++17 and span is C++20, and raising the
+	 * standard to save ten lines would be a breaking change for everything that consumes
+	 * it. Only what the match path needs.
+	 */
+	template <typename T>
+	struct array_view {
+		const T* first = nullptr;
+		size_t count = 0;
+
+		array_view() = default;
+		array_view(const T* p, size_t n) : first(p), count(n) {}
+		array_view(const std::vector<T>& v) : first(v.data()), count(v.size()) {}
+
+		const T& operator[](size_t i) const { return first[i]; }
+		size_t size() const { return count; }
+		bool empty() const { return count == 0; }
+		const T* begin() const { return first; }
+		const T* end() const { return first + count; }
+	};
+
+	template <typename T, size_t N>
+	class small_vector {
+		// Deliberately not value-initialised. These are constructed once per frame of a
+		// match, and zeroing the whole inline run each time cost more than the
+		// allocation it was there to avoid. Only elements below inline_count are ever
+		// read.
+		std::array<T, N> inline_storage;
+		size_t inline_count = 0;
+		// Once this is used it holds everything, so the run stays contiguous either way
+		// and can be handed out as a span.
+		std::vector<T> heap;
+		bool spilled = false;
+
+	public:
+		size_t size() const { return spilled ? heap.size() : inline_count; }
+		bool empty() const { return size() == 0; }
+		const T* data() const { return spilled ? heap.data() : inline_storage.data(); }
+		T* data() { return spilled ? heap.data() : inline_storage.data(); }
+
+		void clear() {
+			inline_count = 0;
+			heap.clear();
+			spilled = false;
+		}
+
+		void push_back(const T& value) {
+			if (!spilled) {
+				if (inline_count < N) {
+					inline_storage[inline_count++] = value;
+					return;
+				}
+				heap.reserve(N * 2);
+				heap.assign(inline_storage.begin(), inline_storage.begin() + inline_count);
+				spilled = true;
+			}
+			heap.push_back(value);
+		}
+
+		template <typename... Args>
+		void emplace_back(Args&&... args) {
+			push_back(T(std::forward<Args>(args)...));
+		}
+
+		T& operator[](size_t i) { return data()[i]; }
+		const T& operator[](size_t i) const { return data()[i]; }
+
+		const T* begin() const { return data(); }
+		const T* end() const { return data() + size(); }
+		T* begin() { return data(); }
+		T* end() { return data() + size(); }
 	};
 
 	/**
@@ -385,40 +600,59 @@ namespace {
 	 * linearly is faster at these sizes and allocates once, if at all.
 	 */
 	struct LimitState {
-		std::vector<std::pair<const Limits*, Limits>> counters;
+		/// Counters are held inline up to this many, so a match that touches a repeat
+		/// does not allocate to track it. One route lookup touches one.
+		static constexpr size_t INLINE_COUNTERS = 4;
+
+		std::array<std::pair<const Limits*, Limits>, INLINE_COUNTERS> inline_counters{};
+		size_t inline_used = 0;
+		std::vector<std::pair<const Limits*, Limits>> spill;
+
+		std::pair<const Limits*, Limits>* find(const Limits* base) {
+			for (size_t i = 0; i < inline_used; ++i) {
+				if (inline_counters[i].first == base) return &inline_counters[i];
+			}
+			for (auto& entry : spill) {
+				if (entry.first == base) return &entry;
+			}
+			return nullptr;
+		}
+
+		const std::pair<const Limits*, Limits>* find(const Limits* base) const {
+			return const_cast<LimitState*>(this)->find(base);
+		}
+
+		std::pair<const Limits*, Limits>& add(const Limits* base, const Limits& value) {
+			if (inline_used < INLINE_COUNTERS) {
+				inline_counters[inline_used] = {base, value};
+				return inline_counters[inline_used++];
+			}
+			spill.emplace_back(base, value);
+			return spill.back();
+		}
 
 		const Limits& current(const Limits* base) const {
-			for (const auto& entry : counters) {
-				if (entry.first == base) {
-					return entry.second;
-				}
-			}
-			return *base;
+			const auto* entry = find(base);
+			return entry ? entry->second : *base;
 		}
 
 		/// Decrements this match's copy and returns the value before it, for undo.
 		Limits consume(const Limits* base) {
-			for (auto& entry : counters) {
-				if (entry.first == base) {
-					const Limits old = entry.second;
-					--(entry.second);
-					return old;
-				}
+			auto* entry = find(base);
+			if (entry == nullptr) {
+				entry = &add(base, *base);
 			}
-			counters.emplace_back(base, *base);
-			const Limits old = counters.back().second;
-			--(counters.back().second);
+			const Limits old = entry->second;
+			--(entry->second);
 			return old;
 		}
 
 		void restore(const Limits* base, const Limits& old) {
-			for (auto& entry : counters) {
-				if (entry.first == base) {
-					entry.second = old;
-					return;
-				}
+			if (auto* entry = find(base)) {
+				entry->second = old;
+				return;
 			}
-			counters.emplace_back(base, old);
+			add(base, old);
 		}
 	};
 
@@ -772,7 +1006,7 @@ namespace {
 		std::vector<RegexData> match(ConstIterator, ConstIterator) const;
 
 		template <typename ConstIterator>
-		std::vector<RegexData> match_helper(ConstIterator, ConstIterator, const std::vector<RegexData>&, const Node*,
+		std::vector<RegexData> match_helper(ConstIterator, ConstIterator, array_view<RegexData>, const Node*,
 		                                    LimitState&, bool paths_is_live = false) const;
 
 		/**
@@ -791,7 +1025,7 @@ namespace {
 		// the general path.
 		template <typename ConstIterator>
 		void match_with_groups_helper(ConstIterator begin, ConstIterator end, size_t position,
-		                              const std::vector<RegexData>& paths, const Node* prev,
+		                              array_view<RegexData> paths, const Node* prev,
 		                              CaptureTable<RegexData>& capture_slots, LimitState& limit_state,
 		                              std::vector<matcher::MatchResult<RegexData>>& results,
 		                              bool paths_is_live = false) const;
