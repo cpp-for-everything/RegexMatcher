@@ -91,7 +91,7 @@ namespace matcher {
 	template <typename ConstIterator>
 	SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::processSet(
 	    std::vector<Node<RegexData, char_t>*> parents, [[maybe_unused]] RegexData regex, ConstIterator& it,
-	    std::vector<std::unique_ptr<Node<RegexData, char_t>>>& nodes_storage, std::uint32_t& class_counter) {
+	    std::deque<Node<RegexData, char_t>>& nodes_storage, std::uint32_t& class_counter) {
 		if (*it != '[')  // not called at the beginning of a set
 		{
 			throw std::logic_error("The iterator doesn't start from a set group.");
@@ -153,9 +153,8 @@ namespace matcher {
 		if (node == nullptr) {
 			// Ids start at one; zero means "not a class". Each occurrence gets its own,
 			// so two different classes leaving one node remain two edges.
-			nodes_storage.push_back(
-			    std::make_unique<Node<RegexData, char_t>>(symbol<char_t>::of_class(++class_counter)));
-			node = nodes_storage.back().get();
+			nodes_storage.emplace_back(symbol<char_t>::of_class(++class_counter));
+			node = &nodes_storage.back();
 			node->ensure_extras().members = std::move(members);
 		}
 
@@ -168,7 +167,7 @@ namespace matcher {
 	SubTree<Node<RegexData, char_t>> RegexMatcher<RegexData, char_t>::process(
 	    std::vector<Node<RegexData, char_t>*> parents, RegexData regex, ConstIterator& it, ConstIterator end,
 	    const bool inBrackets, size_t& group_counter, std::vector<TagAction>& pending_actions,
-	    std::vector<std::unique_ptr<Node<RegexData, char_t>>>& nodes_storage,
+	    std::deque<Node<RegexData, char_t>>& nodes_storage,
 	    std::vector<std::unique_ptr<Limits>>& limits_storage, std::uint32_t& class_counter) {
 		SubTree<Node<RegexData, char_t>> answer = {{}, {}};
 		std::vector<SubTree<Node<RegexData, char_t>>> nodeLayers = {{parents, parents}};
@@ -233,8 +232,8 @@ namespace matcher {
 					}
 				}
 				if (nextNode == nullptr) {
-					nodes_storage.push_back(std::make_unique<Node<RegexData, char_t>>(sym));
-					nextNode = nodes_storage.back().get();
+					nodes_storage.emplace_back(sym);
+					nextNode = &nodes_storage.back();
 				}
 				for (auto parent : nodeLayers.back().get_leafs()) {
 					parent->connect_with(nextNode, regex, pending_actions, limits_storage);
@@ -247,8 +246,8 @@ namespace matcher {
 		answer.leafs.insert(answer.leafs.end(), nodeLayers.back().get_leafs().begin(),
 		                    nodeLayers.back().get_leafs().end());
 		if (it == end) {
-			nodes_storage.push_back(std::make_unique<Node<RegexData, char_t>>(symbol<char_t>::EOR));
-			Node<RegexData, char_t>* end_of_regex = nodes_storage.back().get();
+			nodes_storage.emplace_back(symbol<char_t>::EOR);
+			Node<RegexData, char_t>* end_of_regex = &nodes_storage.back();
 			SubTree<Node<RegexData, char_t>> final_answer = {answer.get_roots(), {end_of_regex}};
 			for (auto parent : answer.leafs) {
 				parent->connect_with(end_of_regex, regex, pending_actions, limits_storage);
@@ -272,7 +271,7 @@ namespace matcher {
 		// clearing costs one flag per node against a build that is already the
 		// expensive half of this class.
 		root.compiled = false;
-		for (auto& node : nodes_storage) node->compiled = false;
+		for (auto& node : nodes_storage) node.compiled = false;
 	}
 
 	template <typename RegexData, typename char_t>
@@ -285,6 +284,9 @@ namespace matcher {
 		// repeat limit. std::map iterates in key order, so `ids` comes out sorted for
 		// free.
 		auto describe_edges = [](Node<RegexData, char_t>& node) {
+			// Before anything takes a pointer into it. Building doubled its capacity as
+			// it went, and trimming moves every edge.
+			node.neighbours.shrink();
 			for (auto& [sym, edge] : node.neighbours) {
 				edge.ids.clear();
 				edge.ids.reserve(edge.paths.size());
@@ -299,7 +301,7 @@ namespace matcher {
 		};
 		describe_edges(root);
 		for (auto& node : nodes_storage) {
-			describe_edges(*node);
+			describe_edges(node);
 		}
 
 		// Pass two: does taking an edge hand over exactly what is alive at the far end?
@@ -394,12 +396,36 @@ namespace matcher {
 				}
 			}
 			node.has_repeat_bounds = node.extras && !node.extras->repeats.empty();
+
+			// Give back the capacity building left behind. Nothing is added after this
+			// without add_regex, which clears `compiled` and sends everything through
+			// here again, so the structure is only ever trimmed once it is final.
+			//
+			// This is the whole reason the arm loses at ten thousand routes: measured
+			// against a query stream small enough to stay in cache it is faster than the
+			// radix tree, and slower only once the structure stops fitting.
+			// Note what is NOT trimmed here: the neighbour run itself. Shrinking it
+			// moves the edges, and the class-edge list gathered just above points into
+			// them. That is done in the first pass instead, before anything holds a
+			// pointer.
+			for (auto& [sym, edge] : node.neighbours) {
+				edge.paths.shrink();
+				edge.tag_actions.shrink();
+				edge.ids.shrink_to_fit();
+				edge.run.shrink_to_fit();
+			}
+			if (node.extras) {
+				node.extras->members.shrink_to_fit();
+				node.extras->edges.shrink_to_fit();
+				node.extras->repeats.shrink_to_fit();
+			}
 			node.compiled = true;
 		};
 		flag_edges(root);
 		for (auto& node : nodes_storage) {
-			flag_edges(*node);
+			flag_edges(node);
 		}
+
 
 	}
 

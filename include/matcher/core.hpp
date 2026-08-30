@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <set>
 #include <map>
+#include <deque>
 #include <list>
 #include <string>
 #include <vector>
@@ -254,6 +255,12 @@ namespace {
 		}
 
 		void reserve(size_t n) { entries.reserve(n); }
+
+		/// Hands back what growth left over. Building doubles capacity as it goes, so a
+		/// finished structure carries up to twice the entries it holds; at ten thousand
+		/// routes that slack, spread over two hundred thousand small runs, was a larger
+		/// share of the footprint than the entries were.
+		void shrink() { entries.shrink_to_fit(); }
 	};
 
 	/**
@@ -819,7 +826,14 @@ namespace matcher {
 	template <typename RegexData, typename char_t>
 	class RegexMatcher {
 		Node<RegexData, char_t> root;
-		std::vector<std::unique_ptr<Node<RegexData, char_t>>> nodes_storage;
+		// A deque, not a vector of separately allocated nodes.
+		//
+		// Every node used to be its own allocation, so a table's states were scattered
+		// across the heap and a lookup that walks eight of them paid eight chances of a
+		// miss. A deque hands out blocks, and states created consecutively are the ones a
+		// pattern walks consecutively, so they land together. References stay stable on
+		// push_back, which everything here relies on: the graph is pointers.
+		std::deque<Node<RegexData, char_t>> nodes_storage;
 		std::vector<std::unique_ptr<Limits>> limits_storage;
 		/// Hands each character class its own identity, so two different classes leaving
 		/// one node are two edges rather than one.
@@ -832,14 +846,14 @@ namespace matcher {
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> processSet(std::vector<Node<RegexData, char_t>*>, RegexData,
 		                                                   ConstIterator&,
-		                                                   std::vector<std::unique_ptr<Node<RegexData, char_t>>>&,
+		                                                   std::deque<Node<RegexData, char_t>>&,
 		                                                   std::uint32_t& class_counter);
 
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> process(std::vector<Node<RegexData, char_t>*>, RegexData,
 		                                                ConstIterator&, ConstIterator, const bool,
 		                                                size_t& group_counter, std::vector<TagAction>& pending_actions,
-		                                                std::vector<std::unique_ptr<Node<RegexData, char_t>>>&,
+		                                                std::deque<Node<RegexData, char_t>>&,
 		                                                std::vector<std::unique_ptr<Limits>>&,
 		                                                std::uint32_t& class_counter);
 
