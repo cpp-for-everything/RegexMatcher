@@ -1,5 +1,10 @@
 #include "utils/test.hpp"
 
+#include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <thread>
+
 TEST(RegexMatcherValidity, matcher_urls) { test_for({"/", "\\/([0-9a-z\\-]+)"}, {"/", "/12asdf-"}); }
 
 TEST(RegexMatcherValidity, matcher_test_no_regex) {
@@ -147,6 +152,93 @@ TEST(RegexMatcherGroups, multiple_regexes_with_groups) {
 	auto results = root.match_with_groups(std::string("abc"));
 	ASSERT_EQ(results.size(), 2);
 	// Both regexes should match with their respective groups
+}
+
+// A matcher is shared. coroute::Router hands one RegexMatcher to every worker thread and
+// calls match_with_groups from all of them. Matching used to decrement the Limits counter
+// behind each quantifier inside the shared graph and restore it on the way out, so two
+// threads raced on the same counters.
+//
+// The routes have the shape Router builds, where "/user/{id}" becomes
+// "\/user\/([A-Za-z0-9_.%\-]+)". An unbounded quantifier lands on Limits{0, none}, which
+// the decrement leaves alone, so the race there only ever writes back the value it read.
+// The bounded repeats are the counters that move: without the fix about a third of the
+// matches below come back empty, because a counter was read while another thread was
+// part way through restoring it.
+TEST(RegexMatcherConcurrency, match_with_groups_over_a_route_table) {
+	struct Route {
+		std::string pattern;
+		std::string path;
+		std::string expected;  // "<route id>|<param>|<param>..."
+	};
+	const std::vector<Route> routes = {
+	    {R"(\/health)", "/health", "0"},
+	    {R"(\/user\/([A-Za-z0-9_.%\-]+))", "/user/alice", "1|alice"},
+	    {R"(\/user\/([A-Za-z0-9_.%\-]+)\/post\/([A-Za-z0-9_.%\-]+))", "/user/bob/post/42", "2|bob|42"},
+	    {R"(\/orders\/([A-Za-z0-9_.%\-]+))", "/orders/9f2c", "3|9f2c"},
+	    {R"(\/logs\/([0-9]{4}))", "/logs/2026", "4|2026"},
+	    {R"(\/api\/v([0-9]{1,2})\/items\/([A-Za-z0-9_.%\-]+))", "/api/v12/items/x.y", "5|12|x.y"},
+	};
+
+	matcher::RegexMatcher<size_t> root;
+	for (size_t i = 0; i < routes.size(); i++) {
+		root.add_regex(routes[i].pattern, i);
+	}
+
+	// Router takes the last match, so describe that one as "<route id>|<param>...".
+	// A match resolved to the wrong route and a wrong capture both show up as a mismatch.
+	auto resolve = [&root, &routes](size_t i) {
+		const std::string& path = routes[i].path;
+		const auto results = root.match_with_groups(path);
+		if (results.empty()) {
+			return std::string("<no match>");
+		}
+		const auto& match = results.back();
+		std::string answer = std::to_string(match.regex_id);
+		for (const auto& group : match.groups) {
+			answer += "|" + path.substr(group.second.first, group.second.second - group.second.first);
+		}
+		return answer;
+	};
+
+	// Uncontended, every path resolves to its own route.
+	for (size_t i = 0; i < routes.size(); i++) {
+		ASSERT_EQ(resolve(i), routes[i].expected) << "route table is wrong before any thread starts";
+	}
+
+	const unsigned workers = std::max(4u, std::min(8u, std::thread::hardware_concurrency()));
+	constexpr size_t rounds = 500;
+
+	std::atomic<bool> go{false};
+	std::atomic<size_t> mismatches{0};
+	std::mutex first_failure_lock;
+	std::string first_failure;
+
+	std::vector<std::thread> threads;
+	for (unsigned worker = 0; worker < workers; worker++) {
+		threads.emplace_back([&] {
+			while (!go.load(std::memory_order_acquire)) {
+			}
+			for (size_t round = 0; round < rounds; round++) {
+				for (size_t i = 0; i < routes.size(); i++) {
+					const std::string got = resolve(i);
+					if (got != routes[i].expected) {
+						mismatches.fetch_add(1, std::memory_order_relaxed);
+						const std::lock_guard<std::mutex> guard(first_failure_lock);
+						if (first_failure.empty()) {
+							first_failure = routes[i].path + " -> " + got + ", expected " + routes[i].expected;
+						}
+					}
+				}
+			}
+		});
+	}
+	go.store(true, std::memory_order_release);
+	for (auto& thread : threads) {
+		thread.join();
+	}
+
+	EXPECT_EQ(mismatches.load(), 0u) << "first failure: " << first_failure;
 }
 
 // Performance benchmarks have been moved to benchmarks.cpp using Google Benchmark

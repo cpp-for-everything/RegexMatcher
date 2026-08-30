@@ -180,14 +180,15 @@ namespace {
 	template <typename RegexData, typename char_t>
 	template <typename ConstIterator>
 	std::vector<RegexData> Node<RegexData, char_t>::match(ConstIterator begin, ConstIterator end) const {
-		return match_helper(begin, end, {}, nullptr);
+		LimitState limit_state;
+		return match_helper(begin, end, {}, nullptr, limit_state);
 	}
 
 	template <typename RegexData, typename char_t>
 	template <typename ConstIterator>
 	std::vector<RegexData> Node<RegexData, char_t>::match_helper(ConstIterator begin, ConstIterator end,
-	                                                             const std::vector<RegexData>& paths,
-	                                                             const Node* prev) const {
+	                                                             const std::vector<RegexData>& paths, const Node* prev,
+	                                                             LimitState& limit_state) const {
 		if (begin == end) {
 			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
 				std::vector<RegexData> answer;
@@ -200,7 +201,7 @@ namespace {
 							if (const auto knot_path = it->second.paths.find(pathId);
 							    knot_path != it->second.paths.end()) {
 								if (knot_path->second.has_value()) {
-									to_include &= knot_path->second.value()->min == 0;
+									to_include &= limit_state.current(knot_path->second.value()).min == 0;
 								}
 							}
 						}
@@ -208,7 +209,7 @@ namespace {
 						    knot != this->neighbours.end()) {
 							if (knot->second.paths.find(pathId) != knot->second.paths.end()) {
 								if (knot->second.paths.at(pathId).has_value()) {
-									to_include &= knot->second.paths.at(pathId).value()->min == 0;
+									to_include &= limit_state.current(knot->second.paths.at(pathId).value()).min == 0;
 								}
 							}
 						}
@@ -230,9 +231,9 @@ namespace {
 				size_t ind = 0;
 				std::vector<RegexData> new_paths;
 				new_paths.reserve(paths.size());
-				std::map<RegexData, std::optional<Limits>> current_paths;
+				std::vector<std::pair<const Limits*, Limits>> saved_limits;
 				for (const auto [pathId, limits_ptr] : it->second.paths) {
-					if (limits_ptr.has_value() && !limits_ptr.value()->is_allowed_to_repeat()) {
+					if (limits_ptr.has_value() && !limit_state.current(limits_ptr.value()).is_allowed_to_repeat()) {
 						continue;
 					}
 					if (prev != nullptr) {
@@ -251,24 +252,21 @@ namespace {
 						if (!limits_ptr.has_value()) {
 							continue;
 						}
-						current_paths.emplace(pathId, *limits_ptr.value());
-						--(*limits_ptr.value());
+						saved_limits.emplace_back(limits_ptr.value(), limit_state.consume(limits_ptr.value()));
 					}
 				}
 				if (!new_paths.empty()) {
 					if (to_test != symbol<char_t>::None) {
 						begin++;
 					}
-					for (auto match : it->second.to->match_helper(begin, end, new_paths, this)) {
+					for (auto match : it->second.to->match_helper(begin, end, new_paths, this, limit_state)) {
 						answer.push_back(match);
 					}
 					if (to_test != symbol<char_t>::None) {
 						begin--;
 					}
-					for (const auto [pathId, old_limits] : current_paths) {
-						if (old_limits.has_value()) {
-							(*it->second.paths.at(pathId).value()) = old_limits.value();
-						}
+					for (auto rit = saved_limits.rbegin(); rit != saved_limits.rend(); ++rit) {
+						limit_state.restore(rit->first, rit->second);
 					}
 				}
 			}
@@ -282,7 +280,8 @@ namespace {
 	                                                                                        ConstIterator end) const {
 		std::vector<matcher::MatchResult<RegexData>> results;
 		std::map<RegexData, CaptureSlots> capture_slots;
-		match_with_groups_helper(begin, end, 0, {}, nullptr, capture_slots, results);
+		LimitState limit_state;
+		match_with_groups_helper(begin, end, 0, {}, nullptr, capture_slots, limit_state, results);
 		return results;
 	}
 
@@ -290,7 +289,8 @@ namespace {
 	template <typename ConstIterator>
 	void Node<RegexData, char_t>::match_with_groups_helper(
 	    ConstIterator begin, ConstIterator end, size_t position, const std::vector<RegexData>& paths, const Node* prev,
-	    std::map<RegexData, CaptureSlots>& capture_slots, std::vector<matcher::MatchResult<RegexData>>& results) const {
+	    std::map<RegexData, CaptureSlots>& capture_slots, LimitState& limit_state,
+	    std::vector<matcher::MatchResult<RegexData>>& results) const {
 		if (begin == end) {
 			// Check for end-of-regex marker
 			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
@@ -304,7 +304,7 @@ namespace {
 							if (const auto knot_path = it->second.paths.find(pathId);
 							    knot_path != it->second.paths.end()) {
 								if (knot_path->second.has_value()) {
-									to_include &= knot_path->second.value()->min == 0;
+									to_include &= limit_state.current(knot_path->second.value()).min == 0;
 								}
 							}
 						}
@@ -312,7 +312,7 @@ namespace {
 						    knot != this->neighbours.end()) {
 							if (knot->second.paths.find(pathId) != knot->second.paths.end()) {
 								if (knot->second.paths.at(pathId).has_value()) {
-									to_include &= knot->second.paths.at(pathId).value()->min == 0;
+									to_include &= limit_state.current(knot->second.paths.at(pathId).value()).min == 0;
 								}
 							}
 						}
@@ -343,10 +343,10 @@ namespace {
 				size_t ind = 0;
 				std::vector<RegexData> new_paths;
 				new_paths.reserve(paths.size());
-				std::map<RegexData, std::optional<Limits>> current_paths;
+				std::vector<std::pair<const Limits*, Limits>> saved_limits;
 
 				for (const auto& [pathId, limits_ptr] : it->second.paths) {
-					if (limits_ptr.has_value() && !limits_ptr.value()->is_allowed_to_repeat()) {
+					if (limits_ptr.has_value() && !limit_state.current(limits_ptr.value()).is_allowed_to_repeat()) {
 						continue;
 					}
 					if (prev != nullptr) {
@@ -365,8 +365,7 @@ namespace {
 						if (!limits_ptr.has_value()) {
 							continue;
 						}
-						current_paths.emplace(pathId, *limits_ptr.value());
-						--(*limits_ptr.value());
+						saved_limits.emplace_back(limits_ptr.value(), limit_state.consume(limits_ptr.value()));
 					}
 				}
 
@@ -399,7 +398,7 @@ namespace {
 					}
 
 					it->second.to->match_with_groups_helper(next_begin, end, next_position, new_paths, this,
-					                                        capture_slots, results);
+					                                        capture_slots, limit_state, results);
 
 					// Undo capture slot changes (reverse order)
 					for (auto rit = undo_stack.rbegin(); rit != undo_stack.rend(); ++rit) {
@@ -411,11 +410,9 @@ namespace {
 						}
 					}
 
-					// Restore limits
-					for (const auto& [pathId, old_limits] : current_paths) {
-						if (old_limits.has_value()) {
-							(*it->second.paths.at(pathId).value()) = old_limits.value();
-						}
+					// Restore this frame's repeat counters (newest first, like the undo stack above)
+					for (auto rit = saved_limits.rbegin(); rit != saved_limits.rend(); ++rit) {
+						limit_state.restore(rit->first, rit->second);
 					}
 				}
 			}

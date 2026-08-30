@@ -234,6 +234,42 @@ namespace {
 	const Limits Limits::once_or_more = Limits(1, std::nullopt);
 	const Limits Limits::zero_or_more = Limits(0, std::nullopt);
 
+	/**
+	 * @brief A match's private view of the repeat counters
+	 *
+	 * The Limits objects live in the matcher and are shared by every caller, so matching
+	 * must not decrement them in place: two threads matching on one RegexMatcher would
+	 * race on the same counter, and a counter read while another thread was restoring it
+	 * could drop a match. Traversal keeps its own copy of each counter it touches here,
+	 * alongside the CaptureSlots, and the graph stays read-only while matching.
+	 *
+	 * ponytail: a std::map lookup where the old code dereferenced a pointer. Same cost
+	 * class as the capture_slots lookup already on this path. If it shows up in the
+	 * routing benchmark, give each Limits an index into limits_storage and make this a
+	 * flat vector sized to it.
+	 */
+	struct LimitState {
+		std::map<const Limits*, Limits> counters;
+
+		const Limits& current(const Limits* base) const {
+			const auto it = counters.find(base);
+			return (it != counters.end()) ? it->second : *base;
+		}
+
+		/// Decrements this match's copy and returns the value before it, for undo.
+		Limits consume(const Limits* base) {
+			auto it = counters.find(base);
+			if (it == counters.end()) {
+				it = counters.emplace(base, *base).first;
+			}
+			const Limits old = it->second;
+			--(it->second);
+			return old;
+		}
+
+		void restore(const Limits* base, const Limits& old) { counters[base] = old; }
+	};
+
 	template <typename T, typename Node>
 	struct EdgeInfo {
 		std::map<T, std::optional<Limits*>>
@@ -410,8 +446,8 @@ namespace {
 		std::vector<RegexData> match(ConstIterator, ConstIterator) const;
 
 		template <typename ConstIterator>
-		std::vector<RegexData> match_helper(ConstIterator, ConstIterator, const std::vector<RegexData>&,
-		                                    const Node*) const;
+		std::vector<RegexData> match_helper(ConstIterator, ConstIterator, const std::vector<RegexData>&, const Node*,
+		                                    LimitState&) const;
 
 		/**
 		 * @brief Matches a string with all regexes and returns matches with captured groups
@@ -427,7 +463,7 @@ namespace {
 		template <typename ConstIterator>
 		void match_with_groups_helper(ConstIterator begin, ConstIterator end, size_t position,
 		                              const std::vector<RegexData>& paths, const Node* prev,
-		                              std::map<RegexData, CaptureSlots>& capture_slots,
+		                              std::map<RegexData, CaptureSlots>& capture_slots, LimitState& limit_state,
 		                              std::vector<matcher::MatchResult<RegexData>>& results) const;
 
 #ifdef DEBUG
