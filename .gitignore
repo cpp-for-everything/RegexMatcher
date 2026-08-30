@@ -3,3 +3,4 @@ build/
 *.idx
 Testing/
 include/matcher/RegexMatcherConfig.h
+build*/
