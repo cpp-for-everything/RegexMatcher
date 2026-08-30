@@ -139,11 +139,130 @@ namespace {
 	};
 
 	/**
+	 * @brief One match's capture slots, per regex, in a short run
+	 *
+	 * Keyed by regex, and a route lookup only ever tags one or two of them, so a tree
+	 * allocated a node per match to hold a couple of entries. Searched linearly, which
+	 * at these sizes is both faster and free of allocation until something is actually
+	 * captured.
+	 */
+	template <typename RegexData>
+	struct CaptureTable {
+		std::vector<std::pair<RegexData, CaptureSlots>> entries;
+
+		CaptureSlots& operator[](const RegexData& id) {
+			for (auto& entry : entries) {
+				if (entry.first == id) {
+					return entry.second;
+				}
+			}
+			entries.emplace_back(id, CaptureSlots{});
+			return entries.back().second;
+		}
+	};
+
+	/**
+	 * @brief An ordered map held in one contiguous run instead of a tree
+	 *
+	 * The edges leaving a node were a std::map, so every character of a lookup chased
+	 * red-black pointers through separately allocated nodes. Nodes here have one or two
+	 * edges almost everywhere, which is the case a tree is worst at: the allocation and
+	 * the indirection cost more than the comparison saves.
+	 *
+	 * Sorted by key, searched by binary search, so ordered iteration still works and the
+	 * calling code did not have to change. Only the operations the matcher actually uses
+	 * are here; this is not a general container.
+	 *
+	 * Values move when the run grows, so nothing may hold a pointer into it across an
+	 * insertion. The only thing that does is the class-edge list, which compile() builds
+	 * after the graph is final and rebuilds whenever a regex is added.
+	 */
+	template <typename Key, typename Value>
+	class flat_map {
+		std::vector<std::pair<Key, Value>> entries;
+
+		static bool by_key(const std::pair<Key, Value>& entry, const Key& key) { return entry.first < key; }
+
+	public:
+		using iterator = typename std::vector<std::pair<Key, Value>>::iterator;
+		using const_iterator = typename std::vector<std::pair<Key, Value>>::const_iterator;
+
+		iterator begin() { return entries.begin(); }
+		iterator end() { return entries.end(); }
+		const_iterator begin() const { return entries.begin(); }
+		const_iterator end() const { return entries.end(); }
+		const_iterator cbegin() const { return entries.cbegin(); }
+		const_iterator cend() const { return entries.cend(); }
+
+		size_t size() const { return entries.size(); }
+		bool empty() const { return entries.empty(); }
+
+		iterator find(const Key& key) {
+			auto it = std::lower_bound(entries.begin(), entries.end(), key, by_key);
+			return (it != entries.end() && !(key < it->first)) ? it : entries.end();
+		}
+
+		const_iterator find(const Key& key) const {
+			auto it = std::lower_bound(entries.begin(), entries.end(), key, by_key);
+			return (it != entries.end() && !(key < it->first)) ? it : entries.end();
+		}
+
+		Value& operator[](const Key& key) {
+			auto it = std::lower_bound(entries.begin(), entries.end(), key, by_key);
+			if (it != entries.end() && !(key < it->first)) {
+				return it->second;
+			}
+			return entries.emplace(it, key, Value{})->second;
+		}
+
+		/// Moves a value in under a key that is not already present.
+		void insert_moved(const Key& key, Value&& value) {
+			auto it = std::lower_bound(entries.begin(), entries.end(), key, by_key);
+			if (it != entries.end() && !(key < it->first)) {
+				it->second = std::move(value);
+				return;
+			}
+			entries.emplace(it, key, std::move(value));
+		}
+
+		iterator erase(iterator it) { return entries.erase(it); }
+
+		/// Inserts if the key is absent, and reports whether it did.
+		std::pair<iterator, bool> emplace(const Key& key, const Value& value) {
+			auto it = std::lower_bound(entries.begin(), entries.end(), key, by_key);
+			if (it != entries.end() && !(key < it->first)) {
+				return {it, false};
+			}
+			return {entries.emplace(it, key, value), true};
+		}
+
+		Value& at(const Key& key) { return find(key)->second; }
+		const Value& at(const Key& key) const { return find(key)->second; }
+
+		/// Takes over every entry of `other` whose key is absent here, leaving the rest.
+		/// std::map::merge, which this replaces, does the same.
+		void merge(flat_map& other) {
+			for (auto it = other.entries.begin(); it != other.entries.end();) {
+				auto here = std::lower_bound(entries.begin(), entries.end(), it->first, by_key);
+				if (here != entries.end() && !(it->first < here->first)) {
+					++it;
+					continue;
+				}
+				entries.emplace(here, it->first, std::move(it->second));
+				it = other.entries.erase(it);
+			}
+		}
+
+		void reserve(size_t n) { entries.reserve(n); }
+	};
+
+	/**
 	 * @brief Class containing the list of regexes using the given edge
 	 *
 	 * @tparam T type of the reference to the match data
+	 * @tparam char_t Type of symbols used, for the collapsed literal run
 	 */
-	template <typename T, typename Node>
+	template <typename T, typename Node, typename char_t>
 	struct EdgeInfo;
 
 	/**
@@ -244,38 +363,58 @@ namespace {
 	 * could drop a match. Traversal keeps its own copy of each counter it touches here,
 	 * alongside the CaptureSlots, and the graph stays read-only while matching.
 	 *
-	 * ponytail: a std::map lookup where the old code dereferenced a pointer. Same cost
-	 * class as the capture_slots lookup already on this path. If it shows up in the
-	 * routing benchmark, give each Limits an index into limits_storage and make this a
-	 * flat vector sized to it.
+	 * It did show up in the routing benchmark. A std::map here allocated a tree node the
+	 * first time a match touched a repeat counter, and one route lookup touches one or
+	 * two: the allocation cost more than everything it was tracking. A short run searched
+	 * linearly is faster at these sizes and allocates once, if at all.
 	 */
 	struct LimitState {
-		std::map<const Limits*, Limits> counters;
+		std::vector<std::pair<const Limits*, Limits>> counters;
 
 		const Limits& current(const Limits* base) const {
-			const auto it = counters.find(base);
-			return (it != counters.end()) ? it->second : *base;
+			for (const auto& entry : counters) {
+				if (entry.first == base) {
+					return entry.second;
+				}
+			}
+			return *base;
 		}
 
 		/// Decrements this match's copy and returns the value before it, for undo.
 		Limits consume(const Limits* base) {
-			auto it = counters.find(base);
-			if (it == counters.end()) {
-				it = counters.emplace(base, *base).first;
+			for (auto& entry : counters) {
+				if (entry.first == base) {
+					const Limits old = entry.second;
+					--(entry.second);
+					return old;
+				}
 			}
-			const Limits old = it->second;
-			--(it->second);
+			counters.emplace_back(base, *base);
+			const Limits old = counters.back().second;
+			--(counters.back().second);
 			return old;
 		}
 
-		void restore(const Limits* base, const Limits& old) { counters[base] = old; }
+		void restore(const Limits* base, const Limits& old) {
+			for (auto& entry : counters) {
+				if (entry.first == base) {
+					entry.second = old;
+					return;
+				}
+			}
+			counters.emplace_back(base, old);
+		}
 	};
 
-	template <typename T, typename Node>
+	template <typename T, typename Node, typename char_t>
 	struct EdgeInfo {
-		std::map<T, std::optional<Limits*>>
+		// Flat rather than trees. Along a shared prefix one edge carries every pattern in
+		// the table, and at ten thousand routes a red-black node apiece was the largest
+		// single thing in the structure; tag_actions is empty on almost every edge and
+		// was paying for a tree header regardless.
+		flat_map<T, std::optional<Limits*>>
 		    paths;  // each path may have different requirements for how many times should the edge be repeated.
-		std::map<T, std::vector<TagAction>> tag_actions;  // tag actions per regex path for capture tracking
+		flat_map<T, std::vector<TagAction>> tag_actions;  // tag actions per regex path for capture tracking
 		Node* to;
 
 		// --- filled by RegexMatcher::compile, read only while matching -------
@@ -299,9 +438,27 @@ namespace {
 		/// path can be pruned here and the arriving set passes through untouched.
 		bool has_limits = false;
 
-		/// Whether `ids` is exactly the set alive at `to`. When it is, the next frame's
-		/// arriving set is again a full node set and the fast path continues.
+		/// Whether `ids` is exactly the set alive at `run_end()`. When it is, the next
+		/// frame's arriving set is again a full node set and the fast path continues.
 		bool gives_full_child = false;
+
+		/// The characters that necessarily follow this edge's own, and the state they
+		/// lead to.
+		///
+		/// A pattern's literal stretches are chains of states with one way in and one
+		/// way out, and walking them one character at a time is one lookup and one call
+		/// each. compile() collapses a chain into a run compared in a single pass, so
+		/// /api/v1/g0/r0/ costs a comparison rather than fourteen transitions. This is
+		/// what a radix tree gets from storing whole segments per node; the automaton
+		/// can have it too, because collapsing changes only the representation.
+		///
+		/// A chain is only collapsed where nothing observable happens along it: no
+		/// branch, no capture, no repeat limit, no pattern ending, and the same set of
+		/// patterns alive throughout.
+		std::vector<char_t> run;
+		Node* run_to = nullptr;
+
+		Node* run_end() const { return run.empty() ? to : run_to; }
 
 		EdgeInfo() = default;
 		EdgeInfo(const EdgeInfo& info) {
@@ -323,7 +480,10 @@ namespace {
 			has_limits = false;
 			gives_full_child = false;
 		}
-		EdgeInfo(EdgeInfo&&) = delete;
+		// Movable now, so edges can live in one run rather than in separately allocated
+		// tree nodes. The copy constructor above stays as it was.
+		EdgeInfo(EdgeInfo&&) noexcept = default;
+		EdgeInfo& operator=(EdgeInfo&&) noexcept = default;
 	};
 
 	template <typename char_t>
@@ -331,6 +491,19 @@ namespace {
 		char_t ch;
 		bool wildcard;
 		bool none;
+
+		/// Non-zero when this symbol stands for a character class rather than a single
+		/// character, and then it identifies which one. The members live on the node.
+		///
+		/// A class used to be built as one node per member, because a node's identity
+		/// is the character it consumes. [A-Za-z0-9_.%-] is 66 of them, and a repeat
+		/// over it connects every member to every member: 66 nodes and 4356 edges for
+		/// one route parameter, repeated per route because nothing is shared between
+		/// prefixes. A thousand parameterised routes came to 4,490,138 edges and 1.26GB.
+		///
+		/// Each occurrence gets its own id, so two different classes leaving the same
+		/// node stay distinct edges rather than colliding on one key.
+		std::uint32_t cls = 0;
 
 		static const symbol Any;
 		static const symbol None;
@@ -340,14 +513,23 @@ namespace {
 		symbol(char_t s) : ch(s), wildcard(false), none(false) {}
 		symbol(char_t s, bool w, bool n) : ch(s), wildcard(w), none(n) {}
 
-		inline bool operator==(const symbol& s) const {
-			return (wildcard == s.wildcard) && (none == s.none) && (ch == s.ch);
-		}
-		inline bool operator!=(const symbol<char_t>& s) const {
-			return (wildcard != s.wildcard) || (none != s.none) || (ch != s.ch);
+		static symbol of_class(std::uint32_t id) {
+			symbol s{char_t{}, false, false};
+			s.cls = id;
+			return s;
 		}
 
+		bool is_class() const { return cls != 0; }
+
+		inline bool operator==(const symbol& s) const {
+			return (wildcard == s.wildcard) && (none == s.none) && (ch == s.ch) && (cls == s.cls);
+		}
+		inline bool operator!=(const symbol<char_t>& s) const { return !(*this == s); }
+
 		bool operator<(const symbol<char_t>& s) const {
+			if (cls != s.cls) {
+				return cls < s.cls;
+			}
 			if (ch == s.ch) {
 				if (wildcard == s.wildcard) {
 					return none < s.none;
@@ -358,6 +540,9 @@ namespace {
 		}
 
 		inline std::basic_string<char_t> to_string() const {
+			if (is_class()) {
+				return "class";
+			}
 			if (*this == symbol::Any) {
 				return "wildcard";
 			}
@@ -383,7 +568,7 @@ namespace {
 	template <typename RegexData, typename char_t>
 	class Node {
 		friend class matcher::RegexMatcher<RegexData, char_t>;
-		friend struct EdgeInfo<RegexData, char_t>;
+		friend struct EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>;
 
 		static std::map<symbol<char_t>, std::string> special_symbols;
 
@@ -391,13 +576,53 @@ namespace {
 		 * @brief All directly connected nodes
 		 *
 		 */
-		std::map<symbol<char_t>, EdgeInfo<RegexData, Node<RegexData, char_t>>> neighbours;
+		flat_map<symbol<char_t>, EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>> neighbours;
 
 		/**
 		 * @brief The current symbol that the regex would match
 		 *
 		 */
 		symbol<char_t> current_symbol;
+
+		/// Everything to do with character classes, allocated only where there is any.
+		///
+		/// Two empty vectors on every node cost forty bytes apiece, and a table of ten
+		/// thousand routes has hundreds of thousands of nodes of which a handful touch a
+		/// class at all. Behind one pointer it is eight bytes on the nodes that do not.
+		struct ClassData {
+			/// The characters this node accepts, sorted, when its symbol is a class. One
+			/// node stands for the whole class instead of one per member.
+			std::vector<char_t> members;
+
+			/// The class edges leaving this node, gathered by compile() so matching does
+			/// not have to scan every neighbour looking for them.
+			std::vector<const EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>*> edges;
+		};
+		std::unique_ptr<ClassData> class_data;
+
+		ClassData& ensure_class_data() {
+			if (!class_data) {
+				class_data = std::make_unique<ClassData>();
+			}
+			return *class_data;
+		}
+
+		const std::vector<char_t>& class_members() const {
+			static const std::vector<char_t> none;
+			return class_data ? class_data->members : none;
+		}
+
+		bool accepts(char_t c) const {
+			return class_data && std::binary_search(class_data->members.begin(), class_data->members.end(), c);
+		}
+
+		/// Whether this node has a wildcard edge or an epsilon edge at all.
+		///
+		/// Every character used to cost three lookups: the character itself, then Any,
+		/// then None. Almost no node has either, so two of the three found nothing and
+		/// were pure cost. Set by compile().
+		bool has_any_edge = false;
+		bool has_none_edge = false;
 
 		/// Whether compile() has run over this node. False means every edge takes the
 		/// general path, which is what the matcher did before any of this existed.
@@ -509,7 +734,7 @@ namespace {
 		template <typename ConstIterator>
 		void match_with_groups_helper(ConstIterator begin, ConstIterator end, size_t position,
 		                              const std::vector<RegexData>& paths, const Node* prev,
-		                              std::map<RegexData, CaptureSlots>& capture_slots, LimitState& limit_state,
+		                              CaptureTable<RegexData>& capture_slots, LimitState& limit_state,
 		                              std::vector<matcher::MatchResult<RegexData>>& results,
 		                              bool paths_is_live = false) const;
 
@@ -545,6 +770,9 @@ namespace matcher {
 		Node<RegexData, char_t> root;
 		std::vector<std::unique_ptr<Node<RegexData, char_t>>> nodes_storage;
 		std::vector<std::unique_ptr<Limits>> limits_storage;
+		/// Hands each character class its own identity, so two different classes leaving
+		/// one node are two edges rather than one.
+		std::uint32_t class_counter = 0;
 
 		template <typename ConstIterator>
 		static Limits* processLimit(const SubTree<Node<RegexData, char_t>>&, SubTree<Node<RegexData, char_t>>&,
@@ -553,14 +781,16 @@ namespace matcher {
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> processSet(std::vector<Node<RegexData, char_t>*>, RegexData,
 		                                                   ConstIterator&,
-		                                                   std::vector<std::unique_ptr<Node<RegexData, char_t>>>&);
+		                                                   std::vector<std::unique_ptr<Node<RegexData, char_t>>>&,
+		                                                   std::uint32_t& class_counter);
 
 		template <typename ConstIterator>
 		static SubTree<Node<RegexData, char_t>> process(std::vector<Node<RegexData, char_t>*>, RegexData,
 		                                                ConstIterator&, ConstIterator, const bool,
 		                                                size_t& group_counter, std::vector<TagAction>& pending_actions,
 		                                                std::vector<std::unique_ptr<Node<RegexData, char_t>>>&,
-		                                                std::vector<std::unique_ptr<Limits>>&);
+		                                                std::vector<std::unique_ptr<Limits>>&,
+		                                                std::uint32_t& class_counter);
 
 	public:
 		/**

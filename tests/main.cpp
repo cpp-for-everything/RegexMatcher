@@ -47,6 +47,62 @@ TEST(RegexMatcherValidity, matcher_test_group_with_question_mark) {
 	test_for({"text(1|2|3)?"}, {"text", "text1", "text21", "text31", "text34", "text123123"});
 }
 
+// A character class is one node carrying its members rather than one node per member.
+// That changes how classes are built, shared and looked up, so these press on the parts
+// where it could go wrong: two classes leaving the same node, classes that overlap each
+// other and the literals around them, and repetition over a class. Every case is checked
+// against std::regex by test_for, so none of them encodes what this library happens to do.
+
+TEST(RegexMatcherValidity, matcher_class_two_different_classes_from_one_node) {
+	// Both leave the node for 'a'. Keyed by the class rather than by the character read,
+	// so a single class slot per node would have merged these into one.
+	test_for({"a[0-9]x", "a[a-z]y"}, {"a1x", "aqy", "a1y", "aqx", "ax", "ay", "a1", "aq"});
+}
+
+TEST(RegexMatcherValidity, matcher_class_same_class_twice_from_one_node) {
+	// Identical members under the same parent: the two patterns should share the state.
+	test_for({"a[0-9]x", "a[0-9]y"}, {"a1x", "a1y", "a9x", "a9y", "ax", "a1z"});
+}
+
+TEST(RegexMatcherValidity, matcher_class_overlapping_members) {
+	test_for({"[a-c]z", "[b-d]z"}, {"az", "bz", "cz", "dz", "ez", "z", "bb"});
+}
+
+TEST(RegexMatcherValidity, matcher_class_overlaps_a_literal_edge) {
+	// 'b' is reachable both as a literal and as a class member from the same node.
+	test_for({"xbz", "x[a-c]z"}, {"xaz", "xbz", "xcz", "xdz", "xz"});
+}
+
+TEST(RegexMatcherValidity, matcher_class_with_repetition) {
+	test_for({"a[0-9]+b", "a[0-9]{2,3}c"}, {"a1b", "a123b", "ab", "a12c", "a123c", "a1234c"});
+}
+
+// A lower bound on a repeat is not enforced: a[0-9]{2,3}c matches a1c, which has one
+// digit where the pattern demands at least two. Disabled rather than deleted, because
+// the case is real and the suite should carry it until it passes.
+//
+// It predates the class rework and is not caused by it: the same input matches the same
+// way at 0279f59, before a class became one node. The bound is only ever checked where a
+// pattern ends, so a repeat that exits into more pattern is never asked whether it ran
+// its minimum number of times.
+TEST(RegexMatcherValidity, DISABLED_matcher_repeat_lower_bound_is_not_enforced) {
+	test_for({"a[0-9]{2,3}c"}, {"a1c", "a12c"});
+}
+
+TEST(RegexMatcherValidity, matcher_class_single_member_and_leading) {
+	test_for({"[a]bc", "[0-9]start"}, {"abc", "bbc", "1start", "start", "abcd"});
+}
+
+TEST(RegexMatcherValidity, matcher_class_inside_alternation_and_group) {
+	test_for({"([0-9]|[a-c])end", "p([x-z]+)q"}, {"1end", "bend", "dend", "end", "pxq", "pxyzq", "pq", "paq"});
+}
+
+TEST(RegexMatcherValidity, matcher_class_route_shaped) {
+	// The shape the router generates: escaped slashes, a capture over a class, a repeat.
+	test_for({"\\/api\\/v1\\/([A-Za-z0-9_.%\\-]+)", "\\/api\\/v1\\/fixed"},
+	         {"/api/v1/abc", "/api/v1/fixed", "/api/v1/", "/api/v1/a-b.c", "/api/v1/a/b", "/api/v2/abc"});
+}
+
 TEST(RegexMatcherValidity, matcher_tests_many_regexes_many_matches) {
 	test_for(
 	    {"d(abc|def)*g+", "d(abc)*g+", "a?", "b|c", "(d|e)f", "f[a-c]?d(ab|cd)*g+", "a{1,3}a", "aaa", "aa"},

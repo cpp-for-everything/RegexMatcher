@@ -7,8 +7,8 @@
 #include <stack>
 
 namespace {
-	template <typename RegexData, typename T>
-	std::vector<RegexData> common_values(const std::vector<RegexData>& sorted, const std::map<RegexData, T>& paths) {
+	template <typename RegexData, typename PathMap>
+	std::vector<RegexData> common_values(const std::vector<RegexData>& sorted, const PathMap& paths) {
 		std::vector<RegexData> answer;
 		if (sorted.empty()) {
 			for (const auto [k, _] : paths) {
@@ -54,7 +54,11 @@ namespace {
 
 		for (auto it = with->neighbours.begin(); it != with->neighbours.end();) {
 			if (!this->hasChild(it->first)) {
-				this->neighbours.insert(with->neighbours.extract(it));
+				// Moved across and then dropped, where this used to splice a tree node
+				// between two maps. Same effect: the edge leaves `with` and arrives here
+				// exactly once, and nothing else refers to it.
+				this->neighbours.insert_moved(it->first, std::move(it->second));
+				with->neighbours.erase(it);
 				if (with->neighbours.size() == 0) {
 					break;
 				} else {
@@ -182,7 +186,17 @@ namespace {
 	std::vector<RegexData> Node<RegexData, char_t>::match(ConstIterator begin, ConstIterator end) const {
 		LimitState limit_state;
 		// Every regex is alive at the root; see match_with_groups for the reasoning.
-		return match_helper(begin, end, {}, nullptr, limit_state, true);
+		auto answer = match_helper(begin, end, {}, nullptr, limit_state, true);
+		// Ordered by regex, not by the order the walk happened to try edges in.
+		//
+		// It was incidentally ordered before: a class member and a literal with the same
+		// character were the same node, so both patterns rode one edge and came out in
+		// key order. With a class as one node they are two edges, and the order became
+		// whichever was tried first. Callers do read this order -- the router takes the
+		// last match as the most specific one -- so it is made explicit rather than left
+		// to the shape of the graph.
+		std::stable_sort(answer.begin(), answer.end());
+		return answer;
 	}
 
 	template <typename RegexData, typename char_t>
@@ -227,9 +241,52 @@ namespace {
 		}
 		std::vector<RegexData> answer;
 		const symbol<char_t> current = symbol<char_t>(*begin);
-		for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
-			if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
-				const auto& edge = it->second;
+		// The character, then the wildcard, then epsilon, then any class edge whose
+		// members contain this character. A class is keyed by the class rather than by
+		// what it reads, so its edges cannot be found by lookup and are scanned; almost
+		// no node has one. The wildcard and epsilon lookups are skipped where compile()
+		// established there is nothing to find, which is nearly always.
+		const size_t class_count =
+		    this->compiled ? (this->class_data ? this->class_data->edges.size() : 0) : this->neighbours.size();
+		for (size_t candidate = 0; candidate < 3 + class_count; ++candidate) {
+			const EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>* edge_ptr = nullptr;
+			bool consumes = true;
+
+			if (candidate < 3) {
+				if (this->compiled) {
+					if (candidate == 1 && !this->has_any_edge) continue;
+					if (candidate == 2 && !this->has_none_edge) continue;
+				}
+				const symbol<char_t> to_test = (candidate == 0)   ? current
+				                               : (candidate == 1) ? symbol<char_t>::Any
+				                                                  : symbol<char_t>::None;
+				const auto it = this->neighbours.find(to_test);
+				if (it == this->neighbours.end()) {
+					continue;
+				}
+				edge_ptr = &it->second;
+				consumes = (to_test != symbol<char_t>::None);
+			} else {
+				// compile() gathers the class edges; without it they are found the slow
+				// way, so an uncompiled matcher still answers the same.
+				const size_t which = candidate - 3;
+				if (this->compiled) {
+					edge_ptr = this->class_data->edges[which];
+				} else {
+					auto it = this->neighbours.begin();
+					std::advance(it, static_cast<std::ptrdiff_t>(which));
+					if (!it->first.is_class()) {
+						continue;
+					}
+					edge_ptr = &it->second;
+				}
+				if (edge_ptr->to == nullptr || !edge_ptr->to->accepts(*begin)) {
+					continue;
+				}
+			}
+
+			{
+				const auto& edge = *edge_ptr;
 				std::vector<std::pair<const Limits*, Limits>> saved_limits;
 
 				// Same shortcut as match_with_groups_helper, for the same reason. See
@@ -272,15 +329,27 @@ namespace {
 				const std::vector<RegexData>& new_paths = fast ? edge.ids : built;
 				const bool next_is_live = fast && edge.gives_full_child;
 
+				// See match_with_groups_helper: the literal tail is compared in one pass.
+				ConstIterator after_run = begin;
+				if (consumes) {
+					++after_run;
+				}
+				bool run_ok = true;
+				for (const char_t expected : edge.run) {
+					if (after_run == end || *after_run != expected) {
+						run_ok = false;
+						break;
+					}
+					++after_run;
+				}
+				if (!run_ok) {
+					continue;
+				}
+
 				if (!new_paths.empty()) {
-					if (to_test != symbol<char_t>::None) {
-						begin++;
-					}
-					for (auto match : edge.to->match_helper(begin, end, new_paths, this, limit_state, next_is_live)) {
+					for (auto match :
+					     edge.run_end()->match_helper(after_run, end, new_paths, this, limit_state, next_is_live)) {
 						answer.push_back(match);
-					}
-					if (to_test != symbol<char_t>::None) {
-						begin--;
 					}
 					for (auto rit = saved_limits.rbegin(); rit != saved_limits.rend(); ++rit) {
 						limit_state.restore(rit->first, rit->second);
@@ -296,12 +365,18 @@ namespace {
 	std::vector<matcher::MatchResult<RegexData>> Node<RegexData, char_t>::match_with_groups(ConstIterator begin,
 	                                                                                        ConstIterator end) const {
 		std::vector<matcher::MatchResult<RegexData>> results;
-		std::map<RegexData, CaptureSlots> capture_slots;
+		CaptureTable<RegexData> capture_slots;
 		LimitState limit_state;
 		// Every regex is alive at the root, which is exactly what paths_is_live claims,
 		// so the walk can start on the fast path. (The general path says the same thing
 		// a longer way: with prev == nullptr it accepts every id on the edge.)
 		match_with_groups_helper(begin, end, 0, {}, nullptr, capture_slots, limit_state, results, true);
+		// By regex, for the reason given in match(). Stable, so several results for one
+		// regex keep the order the walk found them in.
+		std::stable_sort(results.begin(), results.end(),
+		                 [](const matcher::MatchResult<RegexData>& a, const matcher::MatchResult<RegexData>& b) {
+			                 return a.regex_id < b.regex_id;
+		                 });
 		return results;
 	}
 
@@ -309,8 +384,11 @@ namespace {
 	template <typename ConstIterator>
 	void Node<RegexData, char_t>::match_with_groups_helper(
 	    ConstIterator begin, ConstIterator end, size_t position, const std::vector<RegexData>& paths, const Node* prev,
-	    std::map<RegexData, CaptureSlots>& capture_slots, LimitState& limit_state,
+	    CaptureTable<RegexData>& capture_slots, LimitState& limit_state,
 	    std::vector<matcher::MatchResult<RegexData>>& results, bool paths_is_live) const {
+#ifdef MATCHER_COUNT
+		++g_calls;
+#endif
 		if (begin == end) {
 			// Check for end-of-regex marker
 			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
@@ -358,9 +436,52 @@ namespace {
 		}
 
 		const symbol<char_t> current = symbol<char_t>(*begin);
-		for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
-			if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
-				const auto& edge = it->second;
+		// The character, then the wildcard, then epsilon, then any class edge whose
+		// members contain this character. A class is keyed by the class rather than by
+		// what it reads, so its edges cannot be found by lookup and are scanned; almost
+		// no node has one. The wildcard and epsilon lookups are skipped where compile()
+		// established there is nothing to find, which is nearly always.
+		const size_t class_count =
+		    this->compiled ? (this->class_data ? this->class_data->edges.size() : 0) : this->neighbours.size();
+		for (size_t candidate = 0; candidate < 3 + class_count; ++candidate) {
+			const EdgeInfo<RegexData, Node<RegexData, char_t>, char_t>* edge_ptr = nullptr;
+			bool consumes = true;
+
+			if (candidate < 3) {
+				if (this->compiled) {
+					if (candidate == 1 && !this->has_any_edge) continue;
+					if (candidate == 2 && !this->has_none_edge) continue;
+				}
+				const symbol<char_t> to_test = (candidate == 0)   ? current
+				                               : (candidate == 1) ? symbol<char_t>::Any
+				                                                  : symbol<char_t>::None;
+				const auto it = this->neighbours.find(to_test);
+				if (it == this->neighbours.end()) {
+					continue;
+				}
+				edge_ptr = &it->second;
+				consumes = (to_test != symbol<char_t>::None);
+			} else {
+				// compile() gathers the class edges; without it they are found the slow
+				// way, so an uncompiled matcher still answers the same.
+				const size_t which = candidate - 3;
+				if (this->compiled) {
+					edge_ptr = this->class_data->edges[which];
+				} else {
+					auto it = this->neighbours.begin();
+					std::advance(it, static_cast<std::ptrdiff_t>(which));
+					if (!it->first.is_class()) {
+						continue;
+					}
+					edge_ptr = &it->second;
+				}
+				if (edge_ptr->to == nullptr || !edge_ptr->to->accepts(*begin)) {
+					continue;
+				}
+			}
+
+			{
+				const auto& edge = *edge_ptr;
 				std::vector<std::pair<const Limits*, Limits>> saved_limits;
 
 				// The set surviving this edge is the arriving set intersected with the
@@ -414,6 +535,28 @@ namespace {
 				// the next node's own set is no longer the right answer.
 				const bool next_is_live = fast && edge.gives_full_child;
 
+				// The collapsed literal tail, matched in one pass. Checked before any
+				// capture is opened, so a run that does not match simply moves on to the
+				// next candidate with nothing to undo.
+				ConstIterator after_run = begin;
+				size_t run_advance = 0;
+				if (consumes) {
+					++after_run;
+					run_advance = 1;
+				}
+				bool run_ok = true;
+				for (const char_t expected : edge.run) {
+					if (after_run == end || *after_run != expected) {
+						run_ok = false;
+						break;
+					}
+					++after_run;
+					++run_advance;
+				}
+				if (!run_ok) {
+					continue;
+				}
+
 				if (!new_paths.empty()) {
 					// Track undo operations for efficient backtracking (avoid full map copy)
 					// Each entry: (pathId, group_id, is_open, prev_value)
@@ -427,10 +570,10 @@ namespace {
 					// for actions that were never there: at a thousand routes sharing
 					// /api/v1/ that was nine thousand lookups per match, the same count
 					// as the path walk itself.
-					if (!it->second.tag_actions.empty()) {
+					if (!edge.tag_actions.empty()) {
 						for (RegexData pathId : new_paths) {
-							if (auto actions_it = it->second.tag_actions.find(pathId);
-							    actions_it != it->second.tag_actions.end()) {
+							if (auto actions_it = edge.tag_actions.find(pathId);
+							    actions_it != edge.tag_actions.end()) {
 								for (const auto& action : actions_it->second) {
 									if (action.is_open()) {
 										size_t prev = capture_slots[pathId].open_group(action.group_id, position);
@@ -444,14 +587,8 @@ namespace {
 						}
 					}
 
-					size_t next_position = (to_test != symbol<char_t>::None) ? position + 1 : position;
-					ConstIterator next_begin = begin;
-					if (to_test != symbol<char_t>::None) {
-						next_begin++;
-					}
-
-					edge.to->match_with_groups_helper(next_begin, end, next_position, new_paths, this, capture_slots,
-					                                  limit_state, results, next_is_live);
+					edge.run_end()->match_with_groups_helper(after_run, end, position + run_advance, new_paths, this,
+					                                          capture_slots, limit_state, results, next_is_live);
 
 					// Undo capture slot changes (reverse order)
 					for (auto rit = undo_stack.rbegin(); rit != undo_stack.rend(); ++rit) {
