@@ -165,12 +165,19 @@ namespace matcher::route
 
 	namespace detail
 	{
+		// One route while a table is built: its method, value and index among the specs, and its
+		// segments as a run [first, first + n) of the build's one array of segments. Only the
+		// segments a pattern has are stored (a Pattern holds room for 32), and the build sorts and
+		// splits indices of entries, never the entries themselves, so a route costs a few dozen
+		// bytes of bookkeeping instead of a Pattern's 784.
 		struct Entry
 		{
 			unsigned method;
-			Pattern pattern;
 			std::uint32_t route;
 			std::uint32_t spec;
+			std::uint32_t first;  // the entry's first segment in Build::segs
+			std::uint8_t n;       // its number of segments; "/" has none
+			std::uint8_t params;  // its typed, plain and catch-all segments
 		};
 
 		// The order a trie is built in: by method, then segment by segment (kind, type, text),
@@ -192,43 +199,56 @@ namespace matcher::route
 			return 0;  // parameters match the same segments whatever their names
 		}
 
-		constexpr bool entry_less(const Entry& a, const Entry& b) noexcept
+		// The entries of a build and their segments, and the comparisons over them.
+		struct Build
 		{
-			if (a.method != b.method)
-			{
-				return a.method < b.method;
-			}
-			const std::size_t n = std::min(a.pattern.n, b.pattern.n);
-			for (std::size_t i = 0; i < n; ++i)
-			{
-				const int c = compare_seg(a.pattern.segs[i], b.pattern.segs[i]);
-				if (c != 0)
-				{
-					return c < 0;
-				}
-			}
-			if (a.pattern.n != b.pattern.n)
-			{
-				return a.pattern.n < b.pattern.n;
-			}
-			return a.spec < b.spec;
-		}
+			std::vector<Entry> entries;
+			std::vector<Segment> segs;
 
-		constexpr bool same_paths(const Entry& a, const Entry& b) noexcept
-		{
-			if (a.method != b.method || a.pattern.n != b.pattern.n)
+			constexpr const Segment& seg(std::uint32_t e, std::size_t d) const noexcept { return segs[entries[e].first + d]; }
+
+			constexpr bool less(std::uint32_t x, std::uint32_t y) const noexcept
 			{
-				return false;
+				const Entry& a = entries[x];
+				const Entry& b = entries[y];
+				if (a.method != b.method)
+				{
+					return a.method < b.method;
+				}
+				const std::size_t n = std::min(a.n, b.n);
+				for (std::size_t i = 0; i < n; ++i)
+				{
+					const int c = compare_seg(segs[a.first + i], segs[b.first + i]);
+					if (c != 0)
+					{
+						return c < 0;
+					}
+				}
+				if (a.n != b.n)
+				{
+					return a.n < b.n;
+				}
+				return a.spec < b.spec;
 			}
-			for (std::size_t i = 0; i < a.pattern.n; ++i)
+
+			constexpr bool same_paths(std::uint32_t x, std::uint32_t y) const noexcept
 			{
-				if (compare_seg(a.pattern.segs[i], b.pattern.segs[i]) != 0)
+				const Entry& a = entries[x];
+				const Entry& b = entries[y];
+				if (a.method != b.method || a.n != b.n)
 				{
 					return false;
 				}
+				for (std::size_t i = 0; i < a.n; ++i)
+				{
+					if (compare_seg(segs[a.first + i], segs[b.first + i]) != 0)
+					{
+						return false;
+					}
+				}
+				return true;
 			}
-			return true;
-		}
+		};
 
 		constexpr std::size_t pow2_at_least(std::size_t n) noexcept
 		{
@@ -245,7 +265,12 @@ namespace matcher::route
 		struct TrieBuilder
 		{
 			Built& out;
-			const std::vector<Entry>& entries;
+			const Build& build_;
+			const std::vector<std::uint32_t>& order;  // the trie's entries, sorted
+			// The literal groups of the nodes being built, one run per node on the path from the
+			// root: a node pushes its groups, builds its children, and pops them, so the build
+			// allocates for this stack as it grows, not once per node.
+			std::vector<std::pair<std::size_t, std::size_t>> groups{};
 
 			constexpr std::uint32_t label(std::string_view s)
 			{
@@ -254,20 +279,25 @@ namespace matcher::route
 				return off;
 			}
 
-			// Builds the node for entries [lo, hi), which share their first `depth` segments.
+			constexpr const Segment& seg(std::size_t i, std::size_t depth) const noexcept
+			{
+				return build_.seg(order[i], depth);
+			}
+
+			// Builds the node for entries [lo, hi) of order, which share their first `depth` segments.
 			constexpr std::uint32_t build(std::size_t lo, std::size_t hi, std::size_t depth)
 			{
 				const auto self = static_cast<std::uint32_t>(out.nodes.size());
 				out.nodes.push_back({});
 				std::uint32_t route = kNone;
 				// Entries that end here come first in the sort order.
-				while (lo < hi && entries[lo].pattern.n == depth)
+				while (lo < hi && build_.entries[order[lo]].n == depth)
 				{
-					route = entries[lo].route;
+					route = build_.entries[order[lo]].route;
 					++lo;
 				}
 				// Group the rest by their segment at `depth`.
-				std::vector<std::pair<std::size_t, std::size_t>> literal_groups;
+				const std::size_t base = groups.size();
 				std::array<std::pair<std::size_t, std::size_t>, 4> other{};  // u64, i64, param, rest
 				for (auto& o : other)
 				{
@@ -276,21 +306,21 @@ namespace matcher::route
 				for (std::size_t i = lo; i < hi;)
 				{
 					std::size_t j = i + 1;
-					while (j < hi && compare_seg(entries[i].pattern.segs[depth], entries[j].pattern.segs[depth]) == 0)
+					while (j < hi && compare_seg(seg(i, depth), seg(j, depth)) == 0)
 					{
 						++j;
 					}
-					const Segment& s = entries[i].pattern.segs[depth];
+					const Segment& s = seg(i, depth);
 					switch (s.kind)
 					{
-						case SegKind::Literal: literal_groups.push_back({i, j}); break;
+						case SegKind::Literal: groups.push_back({i, j}); break;
 						case SegKind::Typed: other[s.type == ParamType::U64 ? 0 : 1] = {i, j}; break;
 						case SegKind::Param: other[2] = {i, j}; break;
 						case SegKind::Rest: other[3] = {i, j}; break;
 					}
 					i = j;
 				}
-				const std::size_t count = literal_groups.size();
+				const std::size_t count = groups.size() - base;
 				const bool hashed = count > kLinearEdges;
 				const std::size_t slots = hashed ? pow2_at_least(2 * count) : count;
 				const auto first = static_cast<std::uint32_t>(out.edges.size());
@@ -310,8 +340,8 @@ namespace matcher::route
 				}
 				for (std::size_t g = 0; g < count; ++g)
 				{
-					const auto [a, b] = literal_groups[g];
-					const std::string_view text = entries[a].pattern.segs[depth].text;
+					const auto [a, b] = groups[base + g];  // by value: a child's groups may reallocate
+					const std::string_view text = seg(a, depth).text;
 					Edge e;
 					e.len = static_cast<std::uint32_t>(text.size());
 					e.word = load_at(text, 0);
@@ -332,6 +362,7 @@ namespace matcher::route
 						out.edges[first + i] = e;
 					}
 				}
+				groups.resize(base);
 				std::array<std::uint32_t, 4> kids{kNone, kNone, kNone, kNone};
 				for (std::size_t k = 0; k < 4; ++k)
 				{
@@ -356,10 +387,8 @@ namespace matcher::route
 	{
 		Built out;
 		out.roots.fill(kNone);
-		std::vector<detail::Entry> trie;
-		std::vector<detail::Entry> literal;
-		std::vector<detail::Entry> all;
-		all.reserve(specs.size());
+		detail::Build b;
+		b.entries.reserve(specs.size());
 		std::uint16_t param_methods = 0;  // bit m: some route of method m has a parameter
 		for (std::size_t i = 0; i < specs.size(); ++i)
 		{
@@ -370,38 +399,53 @@ namespace matcher::route
 				out.error_route = static_cast<std::uint32_t>(i);
 				return out;
 			}
-			detail::Entry e{s.method, parse_pattern(s.pattern), s.route, static_cast<std::uint32_t>(i)};
-			if (!e.pattern.ok())
+			const Pattern p = parse_pattern(s.pattern);
+			if (!p.ok())
 			{
 				out.error = BuildError::BadPattern;
 				out.error_route = static_cast<std::uint32_t>(i);
 				return out;
 			}
+			b.entries.push_back({s.method, s.route, static_cast<std::uint32_t>(i),
+			                     static_cast<std::uint32_t>(b.segs.size()), p.n, p.params});
+			b.segs.insert(b.segs.end(), p.segs.begin(), p.segs.begin() + p.n);
 			out.methods = static_cast<std::uint16_t>(out.methods | (1u << s.method));
-			if (!e.pattern.literal())
+			if (!p.literal())
 			{
 				param_methods = static_cast<std::uint16_t>(param_methods | (1u << s.method));
 			}
-			all.push_back(e);
 		}
 		// A method whose routes are all literal is answered by the exact-match table alone. A
 		// method that also has parameter routes keeps its literal routes in its trie: the walk
 		// tries a literal child before a parameter, so it finds a fully literal route first, as
 		// rule 5 wants, and the path is read once instead of hashed and then walked.
-		for (const auto& e : all)
+		std::vector<std::uint32_t> literal;
+		std::vector<std::uint32_t> trie;
 		{
-			(e.pattern.literal() && !(param_methods & (1u << e.method)) ? literal : trie).push_back(e);
+			std::size_t nlit = 0;
+			for (const auto& e : b.entries)
+			{
+				nlit += e.params == 0 && !(param_methods & (1u << e.method)) ? 1 : 0;
+			}
+			literal.reserve(nlit);
+			trie.reserve(b.entries.size() - nlit);
 		}
+		for (std::uint32_t i = 0; i < b.entries.size(); ++i)
+		{
+			const auto& e = b.entries[i];
+			(e.params == 0 && !(param_methods & (1u << e.method)) ? literal : trie).push_back(i);
+		}
+		const auto less = [&b](std::uint32_t x, std::uint32_t y) { return b.less(x, y); };
 		for (auto* list : {&literal, &trie})
 		{
-			std::sort(list->begin(), list->end(), detail::entry_less);
+			std::sort(list->begin(), list->end(), less);
 			for (std::size_t i = 1; i < list->size(); ++i)
 			{
-				if (detail::same_paths((*list)[i - 1], (*list)[i]))
+				if (b.same_paths((*list)[i - 1], (*list)[i]))
 				{
 					out.error = BuildError::Duplicate;
-					out.error_route = (*list)[i].spec;
-					out.error_other = (*list)[i - 1].spec;
+					out.error_route = b.entries[(*list)[i]].spec;
+					out.error_other = b.entries[(*list)[i - 1]].spec;
 					return out;
 				}
 			}
@@ -411,9 +455,10 @@ namespace matcher::route
 		{
 			const std::size_t slots = detail::pow2_at_least(2 * literal.size());
 			out.literals.resize(slots);
-			for (const auto& e : literal)
+			for (const std::uint32_t k : literal)
 			{
-				const std::string_view path = e.pattern.n == 0 ? std::string_view("/") : specs[e.spec].pattern;
+				const auto& e = b.entries[k];
+				const std::string_view path = e.n == 0 ? std::string_view("/") : specs[e.spec].pattern;
 				LiteralSlot s;
 				s.hash = detail::path_hash(path, e.method);
 				s.len = static_cast<std::uint32_t>(path.size());
@@ -431,15 +476,15 @@ namespace matcher::route
 			}
 		}
 		// One trie per method.
-		detail::TrieBuilder b{out, trie};
+		detail::TrieBuilder t{out, b, trie};
 		for (std::size_t lo = 0; lo < trie.size();)
 		{
 			std::size_t hi = lo;
-			while (hi < trie.size() && trie[hi].method == trie[lo].method)
+			while (hi < trie.size() && b.entries[trie[hi]].method == b.entries[trie[lo]].method)
 			{
 				++hi;
 			}
-			out.roots[trie[lo].method] = b.build(lo, hi, 0);
+			out.roots[b.entries[trie[lo]].method] = t.build(lo, hi, 0);
 			lo = hi;
 		}
 		if (out.nodes.size() >= kNone || out.edges.size() >= kNone || out.arena.size() >= kNone)
