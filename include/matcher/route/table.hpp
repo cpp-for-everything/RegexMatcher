@@ -389,6 +389,18 @@ namespace matcher::route
 		out.roots.fill(kNone);
 		detail::Build b;
 		b.entries.reserve(specs.size());
+		{
+			// A pattern has at most as many segments as it has '/', so one allocation holds them all.
+			std::size_t slashes = 0;
+			for (const RouteSpec& s : specs)
+			{
+				for (const char c : s.pattern)
+				{
+					slashes += c == '/' ? 1 : 0;
+				}
+			}
+			b.segs.reserve(slashes);
+		}
 		std::uint16_t param_methods = 0;  // bit m: some route of method m has a parameter
 		for (std::size_t i = 0; i < specs.size(); ++i)
 		{
