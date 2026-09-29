@@ -26,3 +26,5 @@
 #include <matcher/route/table.hpp>
 #include <matcher/route/lookup.hpp>
 #include <matcher/route/static_table.hpp>
+#include <matcher/route/method.hpp>
+#include <matcher/route/checked.hpp>
