@@ -64,6 +64,42 @@ if (matcher.match("123456abc")) {
 }
 ```
 
+## Route Matcher
+
+RegexMatcher also ships an HTTP route matcher, `include/matcher/route.hpp` (target
+`RegexMatcher::route`, C++23, header-only, standard library only). It maps a method and a
+request path to a route and the values its parameters capture, allocates nothing per lookup,
+and can check routes and their handlers when the program is compiled.
+
+```cpp
+#include <matcher/route.hpp>
+using namespace matcher::route;
+
+// At run time: routes from anywhere, then one lookup per request.
+const RouteSpec specs[] = {{index(Method::Get), "/users/{id:u64}", 0},
+                           {index(Method::Get), "/users/me", 1},
+                           {index(Method::Get), "/files/{*path}", 2}};
+const Built table = build_table(specs);  // table.error names a bad or duplicate route
+const Match m = find(table.view(), Method::Get, "/users/42");
+// m.route == 0, m.values()[0] == "42", a view into the path
+
+// While compiling: a malformed pattern, a handler that does not fit its pattern, or two
+// routes that match the same paths stop the compilation.
+std::string get_user(std::uint64_t id, Request& req);
+using H = handlers<std::string, Request&>;
+inline constexpr H::decl api[] = {H::get<"/users/{id:u64}", &get_user>()};
+inline constexpr auto api_table = make_route_table<api>();
+```
+
+Patterns: literal segments, `{name}`, typed `{name:u64}` and `{name:i64}`, and a last
+`{*name}`. The most specific route wins whatever the registration order; a path that only
+another method's routes match is "method not allowed". The rules are in
+[docs/route-semantics.md](docs/route-semantics.md).
+
+Compilers checked so far: clang 18.1.3 and gcc 14.2 (Linux). Tables of about 1,000 routes
+built while compiling need a larger constant-evaluation budget than compilers allow by default
+(`-fconstexpr-steps`, `/constexpr:steps`); the tests use `REGEXMATCHER_CT_STEPS`.
+
 ## Benchmarks and Performance
 
 RegexMatcher achieves competitive throughput compared to existing open-source libraries, especially in workloads with many patterns and strict matching requirements. Benchmarking against traditional engines (e.g., PCRE, std::regex) demonstrates its superior performance in multi-pattern deterministic scenarios.

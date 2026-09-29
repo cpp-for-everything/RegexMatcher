@@ -1,0 +1,69 @@
+name: Route matcher
+
+# The route matcher (include/matcher/route.hpp) and its tests: behaviour, compile-time tables at
+# the sizes the P2 paper measures, and negative compilation. The regex engine keeps ci.yaml.
+# The first run sets the supported compilers; one that fails goes into the README with its
+# error.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, cxx: clang++, name: linux-clang}
+          - {os: ubuntu-24.04, cxx: g++-14, name: linux-gcc}
+          - {os: windows-2022, cxx: cl, name: windows-msvc}
+          - {os: windows-2022, cxx: clang-cl, name: windows-clang-cl}
+          - {os: macos-15, cxx: clang++, name: macos-appleclang}
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1.13.0
+      - name: Ninja
+        if: runner.os != 'Linux'
+        run: ${{ runner.os == 'Windows' && 'choco install ninja -y' || 'brew install ninja' }}
+      - name: Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+      - name: Build (the compile-time-table tests one at a time)
+        run: cmake --build build --target route_tests route_checked_tests route_ct_table_tests
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -R "Route|route_neg"
+
+  sanitize:
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address+undefined, thread]
+    runs-on: ubuntu-24.04
+    name: linux-clang-${{ matrix.sanitizer }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - run: sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+          -DREGEXMATCHER_SANITIZER=${{ matrix.sanitizer }}
+      - name: Build
+        run: cmake --build build --target route_tests route_checked_tests route_ct_table_tests
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:detect_stack_use_after_return=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          TSAN_OPTIONS: halt_on_error=1
+        run: ctest --test-dir build --output-on-failure -R "Route|route_neg"
