@@ -1,7 +1,8 @@
 name: Route matcher
 
 # The route matcher (include/matcher/route.hpp) and its tests: behaviour, compile-time tables at
-# the sizes the P2 paper measures, and negative compilation. The regex engine keeps ci.yaml.
+# the sizes of the route-matching benchmark (paper-typed-routing), and negative compilation.
+# The regex engine keeps ci.yaml.
 # The first run sets the supported compilers; one that fails goes into the README with its
 # error.
 

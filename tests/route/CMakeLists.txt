@@ -2,7 +2,8 @@
 #   route_tests            behaviour of the pattern parser, the table and the lookup
 #   route_checked_tests    the checked front end (methods, patterns as template arguments,
 #                          handler checks, tables of declarations with handlers)
-#   route_ct_table_tests   compile-time tables at the sizes the P2 paper measures (ct_tables/)
+#   route_ct_table_tests   compile-time tables at the sizes of the route-matching benchmark
+#                          (paper-typed-routing; ct_tables/)
 #   route_neg_compile_*    negative compilation: each malformed route fails for its reason (neg/)
 add_executable(route_tests
     test_pattern.cpp

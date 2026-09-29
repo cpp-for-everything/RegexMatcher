@@ -1,6 +1,6 @@
-# Compile-time routing tables at the sizes the P2 paper measures (ct_table_case.hpp): every
-# table shape at m = 10, 100 and 1,000, and the GitHub API table, each built while compiling
-# and at run time and checked against the same queries.
+# Compile-time routing tables at the sizes of the route-matching benchmark (paper-typed-routing;
+# ct_table_case.hpp): every table shape at m = 10, 100 and 1,000, and the GitHub API table, each
+# built while compiling and at run time and checked against the same queries.
 #
 # Constant evaluation of a 1,000-route table takes more steps than compilers allow by default,
 # and a lot of compiler memory, so these translation units get REGEXMATCHER_CT_STEPS and
