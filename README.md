@@ -96,7 +96,8 @@ Patterns: literal segments, `{name}`, typed `{name:u64}` and `{name:i64}`, and a
 another method's routes match is "method not allowed". The rules are in
 [docs/route-semantics.md](docs/route-semantics.md).
 
-Compilers checked so far: clang 18.1.3 and gcc 14.2 (Linux). Tables of about 1,000 routes
+Compilers checked so far: clang 18.1.3 and gcc 14.2 (Linux), MSVC 19.51 and clang-cl 22.1.0
+(Windows; the compile-time tables of 1,000 routes not yet built there). Tables of about 1,000 routes
 built while compiling need a larger constant-evaluation budget than compilers allow by default
 (`-fconstexpr-steps`, `/constexpr:steps`); the tests use `REGEXMATCHER_CT_STEPS`.
 
