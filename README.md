@@ -91,6 +91,10 @@ inline constexpr H::decl api[] = {H::get<"/users/{id:u64}", &get_user>()};
 inline constexpr auto api_table = make_route_table<api>();
 ```
 
+`make_runtime_table(specs)` builds the same table into one block aligned to a page
+(`RuntimeTable`), with its arrays where a compile-time table of the same routes has them; a
+compile-time table declared `alignas(kPageAlign)` then lays out every element alike.
+
 Patterns: literal segments, `{name}`, typed `{name:u64}` and `{name:i64}`, and a last
 `{*name}`. The most specific route wins whatever the registration order; a path that only
 another method's routes match is "method not allowed". The rules are in

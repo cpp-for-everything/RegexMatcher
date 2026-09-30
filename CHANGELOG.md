@@ -9,6 +9,10 @@
   compiling; a lookup that allocates nothing and returns the captured values as views into the
   path; the checked front end (patterns as template arguments, handler checks, compile-time
   tables of route declarations with handlers). Path semantics in `docs/route-semantics.md`.
+- `RuntimeTable` and `make_runtime_table`: a table built at run time in one block aligned to a
+  page, its arrays where a compile-time table of the same routes has them (`table_layout`); a
+  compile-time table declared `alignas(kPageAlign)` then has every element at the same offset
+  into a page.
 - Tests of the route matcher (`tests/route/`), with compile-time tables of up to 1,000 routes
   and negative-compilation tests.
 - CMake options `REGEXMATCHER_BUILD_TESTS`, `REGEXMATCHER_BUILD_BENCHMARKS`,

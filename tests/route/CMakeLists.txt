@@ -10,6 +10,7 @@ add_executable(route_tests
     test_lookup.cpp
     test_table.cpp
     test_static_table.cpp
+    test_runtime_table.cpp
     test_words.cpp
 )
 add_executable(route_checked_tests test_checked.cpp)

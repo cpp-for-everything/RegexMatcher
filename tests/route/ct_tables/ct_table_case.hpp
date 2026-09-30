@@ -4,9 +4,12 @@
 // (gen_route_tests); the expected route and values of each query come from the harness's
 // reference matcher, not from this library.
 //
-// Each table is built twice, while compiling (make_static_table) and at run time
-// (build_table), and both answer every query. A compiler that cannot evaluate a table within
-// the budget this directory's CMakeLists.txt gives it fails to build the test.
+// Each table is built three times: while compiling (make_static_table, declared
+// alignas(kPageAlign)), at run time (build_table), and at run time in one block
+// (make_runtime_table). The block holds build_table's table, element for element, with every
+// array at the compile-time table's offset into a page; all three answer every query. A
+// compiler that cannot evaluate a table within the budget this directory's CMakeLists.txt gives
+// it fails to build the test.
 #pragma once
 
 #include <gtest/gtest.h>
@@ -17,6 +20,8 @@
 #include <string_view>
 
 #include <matcher/route.hpp>
+
+#include "../route_test_util.hpp"
 
 namespace ct_tables
 {
@@ -33,12 +38,17 @@ namespace ct_tables
 	void check()
 	{
 		using namespace matcher::route;
-		static constexpr auto compiled = make_static_table<Routes>();
+		alignas(kPageAlign) static constexpr auto compiled = make_static_table<Routes>();
 		const Built run = build_table(std::span<const RouteSpec>(Routes));
 		ASSERT_EQ(run.error, BuildError::None);
+		const RuntimeTable block = make_runtime_table(std::span<const RouteSpec>(Routes));
+		ASSERT_EQ(block.error, BuildError::None);
+		route_test::expect_same_contents(block.view(), run.view());
+		route_test::expect_same_contents(block.view(), compiled.view());
+		route_test::expect_same_page_offsets(block.view(), compiled.view());
 		for (const Probe& p : Probes)
 		{
-			for (const TableView& view : {compiled.view(), run.view()})
+			for (const TableView& view : {compiled.view(), run.view(), block.view()})
 			{
 				const Match m = find(view, p.method, p.path);
 				const std::uint32_t got = m.status == Status::Found ? m.route : 0xFFFFFFFFu;

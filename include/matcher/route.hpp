@@ -18,7 +18,9 @@
 //
 // Layout: a method whose routes are all literal is answered by one exact-match hash table keyed
 // by method and whole path. Every other method has a segment trie, one root per method,
-// flattened into contiguous arrays; its literal routes live in the trie too.
+// flattened into contiguous arrays; its literal routes live in the trie too. A RuntimeTable holds
+// the four arrays in one page-aligned block, where a StaticTable of the same routes declared
+// alignas(kPageAlign) holds them (table_layout).
 
 #include <matcher/route/config.hpp>
 #include <matcher/route/pattern.hpp>
@@ -26,5 +28,6 @@
 #include <matcher/route/table.hpp>
 #include <matcher/route/lookup.hpp>
 #include <matcher/route/static_table.hpp>
+#include <matcher/route/runtime_table.hpp>
 #include <matcher/route/method.hpp>
 #include <matcher/route/checked.hpp>

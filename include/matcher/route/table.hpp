@@ -98,6 +98,57 @@ namespace matcher::route
 	// std::allocator, the only allocator it accepts; the result is copied into StaticTable.
 	inline constexpr std::size_t kTableAlign = 64;
 
+	// A RuntimeTable's block starts on a page. A StaticTable declared alignas(kPageAlign) does
+	// too, and then every element of either table lies at the same offset into a page.
+	inline constexpr std::size_t kPageAlign = 4096;
+
+	// The lengths of a table's four arrays.
+	struct StaticSizes
+	{
+		std::size_t nodes = 0;
+		std::size_t edges = 0;
+		std::size_t literals = 0;
+		std::size_t arena = 0;
+	};
+
+	// Where a table's four arrays lie in one block (a StaticTable's members, a RuntimeTable's
+	// block): nodes, edges, exact-match slots and the arena, in that order, each at the first
+	// multiple of kTableAlign after the one before; the arena has one byte more than its labels.
+	struct TableLayout
+	{
+		std::size_t nodes = 0;  // offsets into the block
+		std::size_t edges = 0;
+		std::size_t literals = 0;
+		std::size_t arena = 0;
+		std::size_t bytes = 0;  // the block's size
+	};
+
+	namespace detail
+	{
+		constexpr std::size_t align_up(std::size_t n, std::size_t a) noexcept
+		{
+			return (n + a - 1) / a * a;
+		}
+
+		// The bytes an array member of StaticTable takes. An empty std::array takes some too, as
+		// many as the standard library gives it, and the next member comes after them.
+		template <class T>
+		constexpr std::size_t member_bytes(std::size_t n) noexcept
+		{
+			return n != 0 ? n * sizeof(T) : sizeof(std::array<T, 0>);
+		}
+	}  // namespace detail
+
+	constexpr TableLayout table_layout(const StaticSizes& s) noexcept
+	{
+		TableLayout l;
+		l.edges = detail::align_up(l.nodes + detail::member_bytes<Node>(s.nodes), kTableAlign);
+		l.literals = detail::align_up(l.edges + detail::member_bytes<Edge>(s.edges), kTableAlign);
+		l.arena = detail::align_up(l.literals + detail::member_bytes<LiteralSlot>(s.literals), kTableAlign);
+		l.bytes = l.arena + s.arena + 1;
+		return l;
+	}
+
 	template <class T>
 	struct TableAllocator
 	{

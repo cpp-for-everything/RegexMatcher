@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <type_traits>
 
 #include <matcher/route/table.hpp>
 #include <matcher/route/lookup.hpp>
@@ -18,14 +19,10 @@ namespace matcher::route
 	// A table that is a compile-time constant
 	// ========================================================================
 
-	struct StaticSizes
-	{
-		std::size_t nodes = 0;
-		std::size_t edges = 0;
-		std::size_t literals = 0;
-		std::size_t arena = 0;
-	};
-
+	// The four arrays lie where table_layout(S) puts them. Declared alignas(kPageAlign), the
+	// table has every element at the offset into a page that a RuntimeTable of the same routes
+	// has, so that neither table's placement favours its lookups:
+	//     alignas(kPageAlign) static constexpr auto table = make_static_table<routes>();
 	template <StaticSizes S>
 	struct StaticTable
 	{
@@ -86,8 +83,14 @@ namespace matcher::route
 	consteval auto make_static_table()
 	{
 		constexpr StaticSizes sizes = detail::static_sizes<Specs>();
+		using T = StaticTable<sizes>;
+		static_assert(std::is_standard_layout_v<T>);
+		static_assert(offsetof(T, nodes) == table_layout(sizes).nodes && offsetof(T, edges) == table_layout(sizes).edges &&
+		                  offsetof(T, literals) == table_layout(sizes).literals &&
+		                  offsetof(T, arena) == table_layout(sizes).arena,
+		              "a compile-time table's arrays must lie where table_layout puts a run-time table's");
 		const Built b = detail::checked_build<Specs>();
-		StaticTable<sizes> t;
+		T t;
 		std::copy(b.nodes.begin(), b.nodes.end(), t.nodes.begin());
 		std::copy(b.edges.begin(), b.edges.end(), t.edges.begin());
 		std::copy(b.literals.begin(), b.literals.end(), t.literals.begin());
