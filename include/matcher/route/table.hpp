@@ -29,13 +29,22 @@ namespace matcher::route
 		std::uint32_t child = kNone;  // kNone marks an empty slot of a hashed node
 		std::uint32_t off = 0;       // the label in the arena
 		std::uint32_t len = 0;
+		// A chained edge (in a kNodeChained node): the bytes of the segments it also consumes,
+		// each with its leading '/' ("/v1/users"), in the arena right after the label; 0 for
+		// every other edge.
+		std::uint32_t tail = 0;
 	};
+
+	// The kinds of a node's edges (Node::hashed).
+	inline constexpr std::uint8_t kNodeLinear = 0;   // at most 8 edges, scanned in order
+	inline constexpr std::uint8_t kNodeHashed = 1;   // open addressing over a power of two of slots
+	inline constexpr std::uint8_t kNodeChained = 2;  // linear, and some edges are chained (Edge::tail)
 
 	struct Node
 	{
 		std::uint32_t edges = 0;  // first edge (linear) or first slot (hashed)
 		std::uint32_t count = 0;  // edges (linear) or slots, a power of two (hashed)
-		std::uint8_t hashed = 0;
+		std::uint8_t hashed = 0;  // the kind of its edges: kNodeLinear, kNodeHashed or kNodeChained
 		std::uint8_t branches = 0;  // how many kinds of child: a lookup backtracks only if > 1
 		std::uint16_t pad = 0;
 		std::uint32_t u64 = kNone;
@@ -335,6 +344,20 @@ namespace matcher::route
 				return build_.seg(order[i], depth);
 			}
 
+			// Whether the node for entries [a, b) at depth d has no route and one literal child
+			// only, so that its segment can join the edge above it (a chain): every entry goes on
+			// past d, all with the same literal segment there. An entry that ends at d sorts
+			// first, and the entries are sorted by their segment at d.
+			constexpr bool chains(std::size_t a, std::size_t b, std::size_t d) const noexcept
+			{
+				if (build_.entries[order[a]].n <= d)
+				{
+					return false;
+				}
+				const Segment& s = seg(a, d);
+				return s.kind == SegKind::Literal && compare_seg(s, seg(b - 1, d)) == 0;
+			}
+
 			// Builds the node for entries [lo, hi) of order, which share their first `depth` segments.
 			constexpr std::uint32_t build(std::size_t lo, std::size_t hi, std::size_t depth)
 			{
@@ -385,10 +408,11 @@ namespace matcher::route
 					Node& n = out.nodes[self];
 					n.edges = first;
 					n.count = static_cast<std::uint32_t>(slots);
-					n.hashed = hashed ? 1 : 0;
+					n.hashed = hashed ? kNodeHashed : kNodeLinear;
 					n.branches = branches;
 					n.route = route;
 				}
+				bool chained = false;
 				for (std::size_t g = 0; g < count; ++g)
 				{
 					const auto [a, b] = groups[base + g];  // by value: a child's groups may reallocate
@@ -397,7 +421,21 @@ namespace matcher::route
 					e.len = static_cast<std::uint32_t>(text.size());
 					e.word = load_at(text, 0);
 					e.off = label(text);
-					e.child = build(a, b, depth + 1);
+					// In a linear node, the segments below that have one literal child and no route
+					// join this edge: their bytes follow the label in the arena.
+					std::size_t below = depth + 1;
+					if (!hashed)
+					{
+						while (chains(a, b, below))
+						{
+							out.arena.push_back('/');
+							label(seg(a, below).text);
+							++below;
+						}
+						e.tail = static_cast<std::uint32_t>(out.arena.size() - e.off - e.len);
+						chained = chained || e.tail != 0;
+					}
+					e.child = build(a, b, below);
 					if (!hashed)
 					{
 						out.edges[first + g] = e;
@@ -423,6 +461,10 @@ namespace matcher::route
 					}
 				}
 				Node& n = out.nodes[self];
+				if (chained)
+				{
+					n.hashed = kNodeChained;
+				}
 				n.u64 = kids[0];
 				n.i64 = kids[1];
 				n.param = kids[2];
