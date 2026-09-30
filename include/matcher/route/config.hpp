@@ -15,16 +15,6 @@
 #define MATCHER_ROUTE_NOINLINE [[gnu::noinline]]
 #endif
 
-// Instrumentation, none by default. The walk calls MATCHER_ROUTE_ON_BACKTRACK() each time it
-// leaves a branch to try another: at every pop of its backtracking stack, and where a path leaves
-// a chained edge inside its chain at a node with more than one kind of child (where the walk over
-// the same trie without chains would push that node, go down, fail and pop it). A program that
-// counts them defines it before it includes matcher/route.hpp. It is never called in constant
-// evaluation.
-#ifndef MATCHER_ROUTE_ON_BACKTRACK
-#define MATCHER_ROUTE_ON_BACKTRACK()
-#endif
-
 namespace matcher::route
 {
 

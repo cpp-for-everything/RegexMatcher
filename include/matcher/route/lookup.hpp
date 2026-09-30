@@ -86,18 +86,14 @@ namespace matcher::route
 			}
 		}
 
-		// The child of node n along the segment seg, which starts at pos in path (word: its first
-		// 8 bytes), or kNone. next is where the segment after it starts; a chained edge consumes
-		// the segments of its chain too and moves next past them.
-		MATCHER_ROUTE_INLINE constexpr std::uint32_t find_edge(const TableView& t, const Node& n, std::string_view path,
-		                                                         std::size_t pos, std::string_view seg,
-		                                                         std::uint64_t word, std::size_t& next) noexcept
+		MATCHER_ROUTE_INLINE constexpr std::uint32_t find_edge(const TableView& t, const Node& n, std::string_view seg,
+		                                                         std::uint64_t word) noexcept
 		{
 			const auto matches = [&](const Edge& e) {
 				return e.word == word && e.len == seg.size() &&
 				       (seg.size() <= 8 || same_from(t.arena.data() + e.off, seg.data(), seg.size(), 8));
 			};
-			if (n.hashed == kNodeLinear)
+			if (!n.hashed)
 			{
 				for (std::uint32_t i = n.edges, end = n.edges + n.count; i < end; ++i)
 				{
@@ -105,40 +101,6 @@ namespace matcher::route
 					{
 						return t.edges[i].child;
 					}
-				}
-				return kNone;
-			}
-			if (n.hashed == kNodeChained)
-			{
-				for (std::uint32_t i = n.edges, end = n.edges + n.count; i < end; ++i)
-				{
-					const Edge& e = t.edges[i];
-					if (!matches(e))
-					{
-						continue;
-					}
-					if (e.tail != 0)
-					{
-						// The chain's bytes follow the segment, and a segment boundary follows them.
-						const std::size_t at = pos + seg.size();
-						const std::size_t stop = at + e.tail;
-						if (stop > path.size() || (stop < path.size() && path[stop] != '/') ||
-						    !same_from(t.arena.data() + e.off + e.len, path.data() + at, e.tail, 0))
-						{
-							// The path leaves the chain: where the walk without chains would have
-							// pushed this node and popped it, it goes on here.
-							if !consteval
-							{
-								if (n.branches > 1)
-								{
-									MATCHER_ROUTE_ON_BACKTRACK();
-								}
-							}
-							return kNone;
-						}
-						next = stop + 1;
-					}
-					return e.child;
 				}
 				return kNone;
 			}
@@ -211,10 +173,10 @@ namespace matcher::route
 					}
 					const std::string_view seg(path.data() + pos, seglen);  // in range: no check
 					const std::uint64_t word = first & mask_low(seglen);
-					std::size_t next = pos + seglen + 1;
+					const std::size_t next = pos + seglen + 1;
 					if (stage == 0 && n.count != 0)
 					{
-						const std::uint32_t child = find_edge(t, n, path, pos, seg, word, next);
+						const std::uint32_t child = find_edge(t, n, seg, word);
 						if (child != kNone)
 						{
 							if (n.branches > 1)
@@ -277,10 +239,6 @@ namespace matcher::route
 				if (sp == 0)
 				{
 					return kNone;
-				}
-				if !consteval
-				{
-					MATCHER_ROUTE_ON_BACKTRACK();
 				}
 				const Choice c = stack[--sp];
 				node = c.node;

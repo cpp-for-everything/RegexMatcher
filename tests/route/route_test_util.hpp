@@ -52,8 +52,7 @@ namespace route_test
 		{
 			const auto& x = a.edges[i];
 			const auto& y = b.edges[i];
-			EXPECT_TRUE(x.word == y.word && x.child == y.child && x.off == y.off && x.len == y.len && x.tail == y.tail)
-				<< "edge " << i;
+			EXPECT_TRUE(x.word == y.word && x.child == y.child && x.off == y.off && x.len == y.len) << "edge " << i;
 		}
 		ASSERT_EQ(a.literals.size(), b.literals.size());
 		for (std::size_t i = 0; i < a.literals.size(); ++i)
