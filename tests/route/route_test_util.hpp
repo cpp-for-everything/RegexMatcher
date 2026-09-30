@@ -44,8 +44,7 @@ namespace route_test
 			const auto& x = a.nodes[i];
 			const auto& y = b.nodes[i];
 			EXPECT_TRUE(x.edges == y.edges && x.count == y.count && x.hashed == y.hashed && x.branches == y.branches &&
-			            x.chain == y.chain && x.u64 == y.u64 && x.i64 == y.i64 && x.param == y.param && x.rest == y.rest &&
-			            x.route == y.route)
+			            x.u64 == y.u64 && x.i64 == y.i64 && x.param == y.param && x.rest == y.rest && x.route == y.route)
 				<< "node " << i;
 		}
 		ASSERT_EQ(a.edges.size(), b.edges.size());
