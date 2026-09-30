@@ -13,6 +13,10 @@
   page, its arrays where a compile-time table of the same routes has them (`table_layout`); a
   compile-time table declared `alignas(kPageAlign)` then has every element at the same offset
   into a page.
+- Chain nodes: a node with no route and one literal child only, with the nodes below it that
+  are the same, is one node of kind `kNodeChain` (its segments one run in the arena,
+  `Node::chain` bytes long); the lookup answers as before. `MATCHER_ROUTE_ON_BACKTRACK()`, empty
+  by default, is called at every pop of the walk's backtracking stack.
 - Tests of the route matcher (`tests/route/`), with compile-time tables of up to 1,000 routes
   and negative-compilation tests.
 - CMake options `REGEXMATCHER_BUILD_TESTS`, `REGEXMATCHER_BUILD_BENCHMARKS`,

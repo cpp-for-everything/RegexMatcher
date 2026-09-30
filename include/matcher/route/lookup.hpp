@@ -236,9 +236,27 @@ namespace matcher::route
 						return t.nodes[n.rest].route;
 					}
 				}
+				// A chain node has nothing but its chain, so the walk comes here each time it reaches
+				// one; any other node comes here only when it found nothing. The chain's bytes must
+				// follow, then a segment boundary; its child is the next node.
+				if (n.hashed == kNodeChain && pos <= len)
+				{
+					const std::size_t stop = pos + n.chain;
+					if (stop <= len && (stop == len || path[stop] == '/') &&
+					    same_from(t.arena.data() + n.edges, path.data() + pos, n.chain, 0))
+					{
+						++node;
+						pos = stop + 1;
+						continue;
+					}
+				}
 				if (sp == 0)
 				{
 					return kNone;
+				}
+				if !consteval
+				{
+					MATCHER_ROUTE_ON_BACKTRACK();
 				}
 				const Choice c = stack[--sp];
 				node = c.node;

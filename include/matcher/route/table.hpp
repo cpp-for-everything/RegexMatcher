@@ -31,13 +31,21 @@ namespace matcher::route
 		std::uint32_t len = 0;
 	};
 
+	// The kinds of node (Node::hashed).
+	inline constexpr std::uint8_t kNodeLinear = 0;  // at most 8 edges, scanned in order
+	inline constexpr std::uint8_t kNodeHashed = 1;  // open addressing over a power of two of slots
+	// A node with no route and one literal child only, together with the nodes below it that are
+	// the same: no edges, no parameter children, its segments one run of bytes in the arena
+	// ("v1/users": edges is where, chain how many), and its child the next node.
+	inline constexpr std::uint8_t kNodeChain = 2;
+
 	struct Node
 	{
-		std::uint32_t edges = 0;  // first edge (linear) or first slot (hashed)
-		std::uint32_t count = 0;  // edges (linear) or slots, a power of two (hashed)
-		std::uint8_t hashed = 0;
+		std::uint32_t edges = 0;  // first edge (linear) or first slot (hashed); a chain's bytes (chain)
+		std::uint32_t count = 0;  // edges (linear) or slots, a power of two (hashed); 0 (chain)
+		std::uint8_t hashed = 0;  // the kind: kNodeLinear, kNodeHashed or kNodeChain
 		std::uint8_t branches = 0;  // how many kinds of child: a lookup backtracks only if > 1
-		std::uint16_t pad = 0;
+		std::uint16_t chain = 0;    // a chain node: the length of its segments in the arena
 		std::uint32_t u64 = kNone;
 		std::uint32_t i64 = kNone;
 		std::uint32_t param = kNone;
@@ -312,6 +320,7 @@ namespace matcher::route
 		}
 
 		inline constexpr std::size_t kLinearEdges = 8;
+		inline constexpr std::size_t kMaxChain = 0xFFFF;  // the longest chain Node::chain holds
 
 		struct TrieBuilder
 		{
@@ -335,6 +344,19 @@ namespace matcher::route
 				return build_.seg(order[i], depth);
 			}
 
+			// Whether the node for entries [a, b) at depth d has no route and one literal child
+			// only: every entry goes on past d, all with the same literal segment there. An entry
+			// that ends at d sorts first, and the entries are sorted by their segment at d.
+			constexpr bool one_literal_child(std::size_t a, std::size_t b, std::size_t d) const noexcept
+			{
+				if (build_.entries[order[a]].n <= d)
+				{
+					return false;
+				}
+				const Segment& s = seg(a, d);
+				return s.kind == SegKind::Literal && compare_seg(s, seg(b - 1, d)) == 0;
+			}
+
 			// Builds the node for entries [lo, hi) of order, which share their first `depth` segments.
 			constexpr std::uint32_t build(std::size_t lo, std::size_t hi, std::size_t depth)
 			{
@@ -346,6 +368,30 @@ namespace matcher::route
 				{
 					route = build_.entries[order[lo]].route;
 					++lo;
+				}
+				// No route and one literal child only: a chain node, which takes the segments of the
+				// nodes below that are the same too, as far as its length field holds them. Its
+				// child is built next, so it is the next node.
+				if (route == kNone && lo < hi && one_literal_child(lo, hi, depth) &&
+				    seg(lo, depth).text.size() <= kMaxChain)
+				{
+					const auto off = static_cast<std::uint32_t>(out.arena.size());
+					label(seg(lo, depth).text);
+					std::size_t below = depth + 1;
+					while (one_literal_child(lo, hi, below) &&
+					       out.arena.size() - off + 1 + seg(lo, below).text.size() <= kMaxChain)
+					{
+						out.arena.push_back('/');
+						label(seg(lo, below).text);
+						++below;
+					}
+					Node& n = out.nodes[self];
+					n.edges = off;
+					n.chain = static_cast<std::uint16_t>(out.arena.size() - off);
+					n.hashed = kNodeChain;
+					n.branches = 1;
+					build(lo, hi, below);
+					return self;
 				}
 				// Group the rest by their segment at `depth`.
 				const std::size_t base = groups.size();

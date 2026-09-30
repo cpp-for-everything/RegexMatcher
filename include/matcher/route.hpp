@@ -18,7 +18,9 @@
 //
 // Layout: a method whose routes are all literal is answered by one exact-match hash table keyed
 // by method and whole path. Every other method has a segment trie, one root per method,
-// flattened into contiguous arrays; its literal routes live in the trie too. A RuntimeTable holds
+// flattened into contiguous arrays; its literal routes live in the trie too. A node with no
+// route and one literal child only, and the nodes below it that are the same, are one chain node,
+// whose segments are compared as one run of bytes. A RuntimeTable holds
 // the four arrays in one page-aligned block, where a StaticTable of the same routes declared
 // alignas(kPageAlign) holds them (table_layout).
 

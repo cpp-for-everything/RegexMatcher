@@ -15,6 +15,14 @@
 #define MATCHER_ROUTE_NOINLINE [[gnu::noinline]]
 #endif
 
+// Instrumentation, none by default: the walk calls MATCHER_ROUTE_ON_BACKTRACK() at every pop of
+// its backtracking stack, each time it leaves a branch it went down to try another. A program
+// that counts them defines it before it includes matcher/route.hpp. It is never called in
+// constant evaluation.
+#ifndef MATCHER_ROUTE_ON_BACKTRACK
+#define MATCHER_ROUTE_ON_BACKTRACK()
+#endif
+
 namespace matcher::route
 {
 
