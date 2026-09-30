@@ -1,5 +1,6 @@
 // Chain nodes: a node that has no route and one literal child only, and the nodes below it that
-// are the same, become one node of the kind kNodeChain. It has no edges and no parameter
+// are the same, become one node of the kind kNodeChain when they are at least two such segments
+// (one alone saves no step). It has no edges and no parameter
 // children; its segments are one run of bytes in the arena (Node::edges: where, Node::chain: how
 // many), and its child is the next node. The walk tests a chain only where a node found nothing,
 // and answers exactly as over the trie without chains: every answer below is the one the
@@ -135,6 +136,16 @@ TEST(RouteChains, AMethodsRootCanBeAChain)
 	}
 }
 
+TEST(RouteChains, ARunOfOneSegmentIsNotAChain)
+{
+	const Built b = route_test::table({{GET, "/a/b/{p}"}, {GET, "/z/{q}"}});
+	EXPECT_EQ(chain_below(b, "a"), "not a chain");
+	EXPECT_EQ(at(b, GET, "/a/b/1"), std::make_pair(0u, Values{"1"}));
+	const Built c = route_test::table({{GET, "/a/b/c/{p}"}, {GET, "/z/{q}"}});
+	EXPECT_EQ(chain_below(c, "a"), "b/c");
+	EXPECT_EQ(at(c, GET, "/a/b/c/1"), std::make_pair(0u, Values{"1"}));
+}
+
 TEST(RouteChains, APathThatEndsInsideAChainFindsNothing)
 {
 	const Built b = route_test::table({{GET, "/a/b/c"}, {GET, "/z/{p}"}});
@@ -166,7 +177,7 @@ TEST(RouteChains, APathThatLeavesAChainTakesTheParameterBesideIt)
 TEST(RouteChains, ATrailingSlashAfterAChainIsStrict)
 {
 	const Built b = route_test::table({{GET, "/a/b"}, {GET, "/a/b/"}, {GET, "/z/{p}"}});
-	EXPECT_EQ(chain_below(b, "a"), "b");
+	EXPECT_EQ(chain_below(b, "a"), "not a chain");  // one segment, "b", then a node with a route
 	EXPECT_EQ(at(b, GET, "/a/b").first, 0u);
 	EXPECT_EQ(at(b, GET, "/a/b/").first, 1u);
 	EXPECT_EQ(at(b, GET, "/a/b//").first, kNone);
