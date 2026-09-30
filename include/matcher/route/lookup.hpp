@@ -119,21 +119,6 @@ namespace matcher::route
 			}
 		}
 
-		// Whether the n bytes of a at ia are the n bytes of b at ib, both in range: 8 bytes at a
-		// time, the last word masked to the bytes that remain.
-		MATCHER_ROUTE_INLINE constexpr bool same_run(std::string_view a, std::size_t ia, std::string_view b,
-		                                             std::size_t ib, std::size_t n) noexcept
-		{
-			for (std::size_t i = 0; i < n; i += 8)
-			{
-				if (((load_at(a, ia + i) ^ load_at(b, ib + i)) & mask_low(n - i)) != 0)
-				{
-					return false;
-				}
-			}
-			return true;
-		}
-
 		struct Choice
 		{
 			std::uint32_t node;
@@ -257,7 +242,8 @@ namespace matcher::route
 				if (n.hashed == kNodeChain && pos <= len)
 				{
 					const std::size_t stop = pos + n.chain;
-					if (stop <= len && (stop == len || path[stop] == '/') && same_run(t.arena, n.edges, path, pos, n.chain))
+					if (stop <= len && (stop == len || path[stop] == '/') &&
+					    same_from(t.arena.data() + n.edges, path.data() + pos, n.chain, 0))
 					{
 						++node;
 						pos = stop + 1;

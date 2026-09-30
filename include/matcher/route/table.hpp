@@ -369,13 +369,11 @@ namespace matcher::route
 					route = build_.entries[order[lo]].route;
 					++lo;
 				}
-				// No route and one literal child only, and the node below the same: a chain node,
-				// which takes the segments of the nodes below that are the same too, as far as its
-				// length field holds them (one segment alone would save no step). Its child is built
-				// next, so it is the next node.
+				// No route and one literal child only: a chain node, which takes the segments of the
+				// nodes below that are the same too, as far as its length field holds them. Its
+				// child is built next, so it is the next node.
 				if (route == kNone && lo < hi && one_literal_child(lo, hi, depth) &&
-				    one_literal_child(lo, hi, depth + 1) &&
-				    seg(lo, depth).text.size() + 1 + seg(lo, depth + 1).text.size() <= kMaxChain)
+				    seg(lo, depth).text.size() <= kMaxChain)
 				{
 					const auto off = static_cast<std::uint32_t>(out.arena.size());
 					label(seg(lo, depth).text);
