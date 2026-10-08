@@ -2,8 +2,8 @@
 get_filename_component(_dir "${CMAKE_CURRENT_LIST_FILE}" PATH)
 get_filename_component(_prefix "${_dir}/../.." ABSOLUTE)
 
-# Import the targets.
+# Import the targets: RegexMatcher::core (the regex engine) and RegexMatcher::route (the route matcher).
 include("${_prefix}/lib/RegexMatcher-@PROJECT_VERSION@/RegexMatcher-targets.cmake")
 
-# Report other information.
-set(RegexMatcher_INCLUDE_DIRS "${_prefix}/include/RegexMatcher-@PROJECT_VERSION@")
+# Report other information. The headers install to include/matcher.
+set(RegexMatcher_INCLUDE_DIRS "${_prefix}/include")
