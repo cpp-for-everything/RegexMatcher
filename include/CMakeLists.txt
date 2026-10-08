@@ -1,6 +1,13 @@
 # Library headers
 # .hpp = public headers, .ipp = template implementation (included by .hpp)
 
+# Config header, written before the headers are listed so that the engine's file set, and so
+# the installed package, holds it (core.hpp includes it).
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/RegexMatcherConfig.h.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/matcher/RegexMatcherConfig.h
+)
+
 # The regex engine: matcher/*.hpp and matcher/impl/*.ipp, without the route matcher.
 file(GLOB LIB_HDRS
     "${CMAKE_CURRENT_SOURCE_DIR}/matcher/*.hpp"
@@ -14,12 +21,6 @@ file(GLOB_RECURSE ROUTE_HDRS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/matc
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/matcher/route.hpp")
     list(APPEND ROUTE_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/matcher/route.hpp")
 endif()
-
-# Config header
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/RegexMatcherConfig.h.in
-    ${CMAKE_CURRENT_SOURCE_DIR}/matcher/RegexMatcherConfig.h
-)
 
 # The regex engine, header-only (INTERFACE since all code is in headers/ipp files), C++17
 add_library(RegexMatcher INTERFACE)

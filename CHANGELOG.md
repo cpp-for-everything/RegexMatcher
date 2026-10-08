@@ -30,6 +30,12 @@ This release adds the HTTP route matcher. The regex engine is the one of 2.0.0.1
   GoogleTest and Google Benchmark are fetched only then. The test executable is no longer
   installed.
 
+### Fixed
+- `find_package(RegexMatcher)` finds the installed package where file names are case
+  sensitive: its configuration files are now `regexmatcher-config.cmake` and
+  `regexmatcher-config-version.cmake`. The headers, `RegexMatcherConfig.h` included, install
+  to `include/matcher`.
+
 ### Breaking for projects that use the installed package
 - The exported engine target was `core` and is now `RegexMatcher::core`.
 - `RegexMatcher_INCLUDE_DIRS` is now `<prefix>/include`.

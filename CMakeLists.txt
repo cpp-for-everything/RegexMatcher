@@ -59,30 +59,33 @@ if(REGEXMATCHER_BUILD_TESTS)
 endif()
 
 # Install and export the targets.
+# The headers install to include/matcher, the CMake files to lib/RegexMatcher-<version>.
 install(TARGETS RegexMatcher RegexMatcherRoute
-  DESTINATION lib/RegexMatcher-${PROJECT_VERSION}
   EXPORT RegexMatcher-targets
-  FILE_SET regex_matcher_headers
-  FILE_SET route_headers
+  DESTINATION lib/RegexMatcher-${PROJECT_VERSION}
+  FILE_SET regex_matcher_headers DESTINATION include
+  FILE_SET route_headers DESTINATION include
 )
 install(EXPORT RegexMatcher-targets
   NAMESPACE RegexMatcher::
   DESTINATION lib/RegexMatcher-${PROJECT_VERSION})
 
-# Create and install package configuration and version files.
+# Create and install package configuration and version files. find_package looks for
+# <PackageName>Config.cmake or <lowercase package name>-config.cmake, so the files carry the
+# lowercase name: RegexMatcher-config.cmake is found only where file names ignore case.
 configure_file(
   ${RegexMatcher_SOURCE_DIR}/pkg/RegexMatcher-config.cmake.in
-  ${RegexMatcher_BINARY_DIR}/pkg/RegexMatcher-config.cmake @ONLY)
+  ${RegexMatcher_BINARY_DIR}/pkg/regexmatcher-config.cmake @ONLY)
 
 configure_file(
   ${RegexMatcher_SOURCE_DIR}/RegexMatcher-config-version.cmake.in
-  ${RegexMatcher_BINARY_DIR}/RegexMatcher-config-version.cmake @ONLY)
+  ${RegexMatcher_BINARY_DIR}/regexmatcher-config-version.cmake @ONLY)
 
-install(FILES ${RegexMatcher_BINARY_DIR}/pkg/RegexMatcher-config.cmake
-  ${RegexMatcher_BINARY_DIR}/RegexMatcher-config-version.cmake
+install(FILES ${RegexMatcher_BINARY_DIR}/pkg/regexmatcher-config.cmake
+  ${RegexMatcher_BINARY_DIR}/regexmatcher-config-version.cmake
   DESTINATION lib/RegexMatcher-${PROJECT_VERSION})
 
 # Make project usable from build tree.
 export(TARGETS RegexMatcher RegexMatcherRoute NAMESPACE RegexMatcher:: FILE RegexMatcher-targets.cmake)
 configure_file(${RegexMatcher_SOURCE_DIR}/RegexMatcher-config.cmake.in
-  ${RegexMatcher_BINARY_DIR}/RegexMatcher-config.cmake @ONLY)
+  ${RegexMatcher_BINARY_DIR}/regexmatcher-config.cmake @ONLY)
