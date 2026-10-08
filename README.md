@@ -100,11 +100,26 @@ Patterns: literal segments, `{name}`, typed `{name:u64}` and `{name:i64}`, and a
 another method's routes match is "method not allowed". The rules are in
 [docs/route-semantics.md](docs/route-semantics.md).
 
-Compilers checked so far: clang 18.1.3 and 22.1.8, gcc 14.2 and 16.2.1 (Linux), MSVC 19.51 and
-clang-cl 22.1.0 (Windows). With clang 22.1.8, gcc 16.2.1, MSVC 19.51 and clang-cl 22.1.0 the
-whole test suite passes, the compile-time tables of 1,000 routes included. Tables of about 1,000 routes
-built while compiling need a larger constant-evaluation budget than compilers allow by default
-(`-fconstexpr-steps`, `/constexpr:steps`); the tests use `REGEXMATCHER_CT_STEPS`.
+The route matcher needs C++23. These compilers build it and pass the whole route test suite,
+the compile-time tables of 1,000 routes included:
+
+- Linux: clang 18.1.3 and 22.1.8, gcc 14.2 and 16.2.1;
+- macOS: AppleClang 15.0, 17.0 and 21.0;
+- Windows: MSVC 19.51, clang-cl 22.1.0, clang 20.1.8 and MinGW gcc 14.2.
+
+These compilers fail:
+
+- gcc 12.3 and 12.4: `include/matcher/route/checked.hpp`, line 340, "expression '0' does not
+  designate a 'constexpr' function";
+- clang 14.0: `include/matcher/route/static_table.hpp`, line 73, "call to consteval function
+  'matcher::route::detail::checked_build<...>' is not a constant expression";
+- MSVC 19.44: internal compiler error C1001 (`include/matcher/route/table.hpp`, line 502) on the
+  compile-time-table tests; the continuous integration builds and runs the other route tests
+  with it.
+
+Tables of about 1,000 routes built while compiling need a larger constant-evaluation budget
+than compilers allow by default (`-fconstexpr-steps`, `/constexpr:steps`); the tests use
+`REGEXMATCHER_CT_STEPS`.
 
 ## Benchmarks and Performance
 
