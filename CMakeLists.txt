@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(RegexMatcher VERSION 2.0.0.1 LANGUAGES CXX)
+project(RegexMatcher VERSION 2.1.0.0 LANGUAGES CXX)
 
 # Two header-only components:
 #   RegexMatcher::core   the multi-pattern regex engine (include/matcher/core.hpp), C++17
