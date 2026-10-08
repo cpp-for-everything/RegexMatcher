@@ -122,12 +122,12 @@ RegexMatcher is designed for real-world scenarios where correctness and speed ar
 
 ## License
 
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 This project is dual-licensed:
 
 - **Open Source**: [GNU General Public License v3.0](LICENSE) (GPLv3)
-- **Commercial**: Available for proprietary use — see [LICENSING.md](LICENSING.md) for details
+- **Commercial**: available for proprietary use; see [LICENSING.md](LICENSING.md) for details
 
 Copyright (C) 2025 Alex Tsvetanov
 
