@@ -26,19 +26,30 @@ jobs:
         c_compiler: [gcc, clang]
         generator: [Ninja, "Unix Makefiles"]
         include:
-          # MSVC is only available on Windows
+          # MSVC is only available on Windows. windows-2022 has MSVC 19.44, which stops with
+          # internal compiler error C1001 on the route matcher's compile-time-table tests, so its
+          # lane builds the regex engine's tests only (engine_only); route.yaml covers the route
+          # matcher there.
           - os: windows-2019
             c_compiler: cl
             cxx_compiler: cl
             generator: "Visual Studio 17 2022"
+            engine_only: true
           - os: windows-2022
             c_compiler: cl
             cxx_compiler: cl
             generator: "Visual Studio 17 2022"
+            engine_only: true
           - c_compiler: clang
             cxx_compiler: clang++
           - c_compiler: gcc
             cxx_compiler: g++
+          # The route matcher is C++23. ubuntu-22.04 has neither gcc 14 nor clang 18: its gcc 12
+          # and clang 14 do not compile the route matcher (gcc 12: include/matcher/route/
+          # checked.hpp, line 340; clang 14: checked_build is not a constant expression), so its
+          # lanes build the regex engine's tests only. ubuntu-24.04 uses gcc 14 and clang 18.
+          - os: ubuntu-22.04
+            engine_only: true
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -51,11 +62,13 @@ jobs:
           sudo apt-get install -y software-properties-common
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc-12 g++-12 llvm lcov python3
+          # gcc 14 where the image has it (ubuntu-24.04), gcc 12 on ubuntu-22.04
+          if [ "${{ matrix.os }}" = "ubuntu-24.04" ]; then GCC=14; else GCC=12; fi
+          sudo apt-get install -y cmake ninja-build gcc-$GCC g++-$GCC llvm lcov python3
 
-          # Set gcc and g++ version 12 as default
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 60
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 60
+          # Set that gcc and g++ as default
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-$GCC 60
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-$GCC 60
 
       - name: Install dependencies (macOS)
         if: ${{ startsWith(matrix.os, 'macos') }}
@@ -79,16 +92,21 @@ jobs:
         run: |
           cmake -S . -B build -G "${{ matrix.generator }}" -DCODE_COVERAGE=OFF -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }} -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
 
+      # A failed build fails the lane: the step prints the end of the build log and exits with
+      # an error. The annotation steps below still run (if: always()).
       - name: Build Project
         id: build_project
-        continue-on-error: true
+        shell: bash
         run: |
-          cmake --build build --config Release > compile.log 2>&1
+          if ! cmake --build build --config Release ${{ matrix.engine_only && '--target tests' || '' }} > compile.log 2>&1; then
+            tail -n 60 compile.log
+            exit 1
+          fi
 
       - name: Run tests
         if: ${{ steps.build_project.outcome == 'success' }}
         run: |
-          ctest -C Release --test-dir build/tests
+          ctest -C Release --test-dir build/tests ${{ matrix.engine_only && '-R "^RegexMatcher"' || '' }}
 
       - name: Annotate warnings and errors without duplicates
         if: ${{ always() }}
@@ -166,6 +184,10 @@ jobs:
   code-coverage-summery:
     runs-on: ubuntu-latest
     needs: [code_coverage]
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -180,4 +202,4 @@ jobs:
         with:
           script: |
             const script = require('./.github/scripts/generate_coverage_reports.js')
-            console.log(script({github, context}))
+            await script({github, context, core})

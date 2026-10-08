@@ -1,4 +1,4 @@
-module.exports = ({ github, context }) => {
+module.exports = async ({ github, context, core }) => {
     const fs = require('fs');
     const path = require('path');
 
@@ -73,20 +73,25 @@ module.exports = ({ github, context }) => {
     // Get unique uncovered lines from the combined coverage
     const annotations = getUniqueUncoveredLines(aggregated_data);
 
-    // Send annotations to the pull request (once per uncovered line)
-    annotations.forEach(annotation => {
-        github.rest.checks.create({
+    // One check run for all uncovered lines. A check run per line made thousands of requests at
+    // once, which hit GitHub's secondary rate limit and failed this job. The API takes at most 50
+    // annotations per request, so the first 50 lines are annotated and the summary counts all.
+    const maxAnnotations = 50;
+    if (annotations.length > 0) {
+        await github.rest.checks.create({
             owner: context.repo.owner,
             repo: context.repo.repo,
             name: 'Code Coverage Check',
             head_sha: context.sha,
+            status: 'completed',
+            conclusion: 'neutral',
             output: {
                 title: 'Code Coverage Report',
-                summary: 'Found uncovered lines',
-                annotations: [annotation],
+                summary: `Found ${annotations.length} uncovered lines; the first ${Math.min(maxAnnotations, annotations.length)} are annotated.`,
+                annotations: annotations.slice(0, maxAnnotations),
             },
         });
-    });
+    }
 
     // Function to calculate overall and file-specific coverage
     function calculateCoverage(aggregated_data) {
@@ -130,11 +135,15 @@ module.exports = ({ github, context }) => {
         summary += `- **${file.filename}**: ${file.coveragePercentage}% (${file.coveredLines}/${file.totalLines} lines covered)\n`;
     });
 
-    // Post the summary as a comment on the pull request
-    github.rest.issues.createComment({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
-        issue_number: context.payload.pull_request.number,
-        body: summary,
-    });
+    // The summary goes to the job's summary page, and on a pull request also into a comment
+    // (a push to main has no pull request to comment on).
+    await core.summary.addRaw(summary).write();
+    if (context.payload.pull_request) {
+        await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+            body: summary,
+        });
+    }
 }
