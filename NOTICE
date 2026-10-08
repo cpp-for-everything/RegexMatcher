@@ -1,0 +1,18 @@
+RegexMatcher
+Copyright (C) 2025 Alex Tsvetanov
+
+RegexMatcher is licensed as LICENSING.md describes. This repository also holds third-party
+material, which stays under its own licence:
+
+1. The GitHub API route list (BSD 3-Clause License)
+
+   tests/route/ct_tables/github_203.hpp holds the GitHub API route list of
+   julienschmidt/go-http-routing-benchmark (github_test.go, variable githubAPI, at commit
+   d8f3b858995830fc29e26206d7d4d97ece34528c), with ":name" written {name}.
+   Copyright (c) 2013, Julien Schmidt. It is used under the BSD 3-Clause License, whose text is
+   tests/route/ct_tables/LICENSE-go-http-routing-benchmark.
+
+2. cmake_tools/code-coverage.cmake (Apache License, Version 2.0)
+
+   Copyright (C) 2018-2024 by George Cave, licensed under the Apache License, Version 2.0, as
+   the header of the file states.
