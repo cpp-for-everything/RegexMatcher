@@ -16,10 +16,6 @@ The **Commercial License** is suitable for developing proprietary or commercial 
   - Access to professional support (if offered).
   - Flexibility to distribute your software under your chosen terms.
 
-### Exception for WebFrame Commercial License Holders
-
-If you hold a valid commercial license for **WebFrame**, you are entitled to use RegexMatcher under the commercial license without additional fees.
-
 ## Open-Source License
 
 RegexMatcher is also available under the **GNU General Public License version 3 (GPLv3)**. This license is appropriate if you are willing to comply with its terms, which include:
