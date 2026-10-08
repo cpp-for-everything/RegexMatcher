@@ -237,12 +237,12 @@ TEST(RegexMatcherGroups, multiple_regexes_with_groups) {
 	// Both regexes should match with their respective groups
 }
 
-// A matcher is shared. coroute::Router hands one RegexMatcher to every worker thread and
-// calls match_with_groups from all of them. Matching used to decrement the Limits counter
+// A matcher is shared. A router can hand one RegexMatcher to every worker thread and call
+// match_with_groups from all of them. Matching used to decrement the Limits counter
 // behind each quantifier inside the shared graph and restore it on the way out, so two
 // threads raced on the same counters.
 //
-// The routes have the shape Router builds, where "/user/{id}" becomes
+// The routes have the shape such a router builds, where "/user/{id}" becomes
 // "\/user\/([A-Za-z0-9_.%\-]+)". An unbounded quantifier lands on Limits{0, none}, which
 // the decrement leaves alone, so the race there only ever writes back the value it read.
 // The bounded repeats are the counters that move: without the fix about a third of the
