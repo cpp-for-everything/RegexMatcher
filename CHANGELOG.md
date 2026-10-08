@@ -47,8 +47,9 @@ A project that adds this repository with `add_subdirectory` still has the target
 ### Known issue
 - The regex engine checks a repeat's lower bound, where more of the pattern follows the
   repeat, only in a matcher on which `compile()` has run. Without `compile()`,
-  `a[0-9]{2,3}c` matches `a1c` and `x[0-9]{3}z` matches `x1z`. Call `compile()` after the
-  last `add_regex` and before matching. 2.0.0.1 behaves the same way.
+  `a[0-9]{2,3}c` matches `a1c` and `x[0-9]{3}z` matches `x1z`. Calling `compile()` after
+  the last `add_regex` and before matching avoids it. 2.0.0.1 behaves the same way. A fix is
+  planned for 2.1.0.1.
 
 ## 2.0.0.1 (commit d16f30a8)
 
