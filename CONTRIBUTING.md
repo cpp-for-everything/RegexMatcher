@@ -32,4 +32,4 @@ Submit a pull request from a separate branch. Make sure to:
 - Avoid dynamic memory unless justified
 
 ## License
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the GNU General Public License version 3 (GPLv3), and that Alex Tsvetanov may also license them under the commercial license described in [LICENSING.md](LICENSING.md).
