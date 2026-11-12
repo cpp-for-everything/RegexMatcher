@@ -279,4 +279,149 @@ static void BM_StdRegex_ScalePatterns(benchmark::State& state) {
 }
 BENCHMARK(BM_StdRegex_ScalePatterns)->RangeMultiplier(2)->Range(1, 64)->Complexity();
 
+// ============================================================================
+// Route and word workloads: which of N patterns match each input in full.
+// Each benchmark iteration looks up every input once; the counter "inputs" gives the
+// rate per input. The match_* variants compare the entry points of RegexMatcher; the
+// Simulation variant turns the lookup table off; StdRegex tries one std::regex per pattern.
+// ============================================================================
+
+struct Workload {
+    std::vector<std::string> patterns;
+    std::vector<std::string> inputs;
+};
+
+// 3 patterns per resource: /api/v1/resI/[0-9]+, .../items, .../items/[a-z]+
+static Workload routes_workload(int resources) {
+    Workload w;
+    for (int i = 0; i < resources; ++i) {
+        const std::string r = "/api/v1/res" + std::to_string(i);
+        w.patterns.push_back(r + "/[0-9]+");
+        w.patterns.push_back(r + "/[0-9]+/items");
+        w.patterns.push_back(r + "/[0-9]+/items/[a-z]+");
+    }
+    for (int i : {0, resources / 2, resources - 1}) {
+        const std::string r = "/api/v1/res" + std::to_string(i);
+        w.inputs.push_back(r + "/12345");
+        w.inputs.push_back(r + "/12345/items");
+        w.inputs.push_back(r + "/12345/items/widget");
+    }
+    w.inputs.push_back("/api/v1/nothing/12345");
+    w.inputs.push_back("/static/app.js");
+    return w;
+}
+
+static Workload words_workload(int count) {
+    Workload w;
+    for (int i = 0; i < count; ++i) w.patterns.push_back("prefix_word" + std::to_string(i));
+    for (int i : {0, count / 2, count - 1}) w.inputs.push_back("prefix_word" + std::to_string(i));
+    w.inputs.push_back("prefix_wordX");
+    w.inputs.push_back("other");
+    return w;
+}
+
+static Workload workload_for(const benchmark::State& state) {
+    const int n = static_cast<int>(state.range(1));
+    return state.range(0) == 0 ? routes_workload(n) : words_workload(n);
+}
+
+static matcher::RegexMatcher<int, char> build_workload_matcher(const Workload& w,
+                                                               const matcher::TableLimits& limits = {}) {
+    matcher::RegexMatcher<int, char> m;
+    m.set_table_limits(limits);
+    for (size_t i = 0; i < w.patterns.size(); ++i) m.add_regex(w.patterns[i], static_cast<int>(i));
+    m.compile();
+    return m;
+}
+
+static void label_workload(benchmark::State& state, const Workload& w) {
+    state.SetLabel((state.range(0) == 0 ? "routes, " : "words, ") + std::to_string(w.patterns.size()) + " patterns");
+    state.counters["inputs"] = benchmark::Counter(static_cast<double>(state.iterations() * w.inputs.size()),
+                                                  benchmark::Counter::kIsRate);
+}
+
+static void BM_Workload_Match(benchmark::State& state) {
+    const Workload w = workload_for(state);
+    const auto m = build_workload_matcher(w);
+    for (auto _ : state) {
+        for (const auto& s : w.inputs) {
+            auto result = m.match(s);
+            benchmark::DoNotOptimize(result);
+        }
+    }
+    label_workload(state, w);
+}
+
+static void BM_Workload_ForEachMatch(benchmark::State& state) {
+    const Workload w = workload_for(state);
+    const auto m = build_workload_matcher(w);
+    for (auto _ : state) {
+        size_t count = 0;
+        for (const auto& s : w.inputs) m.for_each_match(s, [&count](int) { ++count; });
+        benchmark::DoNotOptimize(count);
+    }
+    label_workload(state, w);
+}
+
+static void BM_Workload_MatchInto(benchmark::State& state) {
+    const Workload w = workload_for(state);
+    const auto m = build_workload_matcher(w);
+    std::vector<int> ids;
+    for (auto _ : state) {
+        for (const auto& s : w.inputs) {
+            m.match_into(s, ids);
+            benchmark::DoNotOptimize(ids.data());
+        }
+    }
+    label_workload(state, w);
+}
+
+static void BM_Workload_MatchesAny(benchmark::State& state) {
+    const Workload w = workload_for(state);
+    const auto m = build_workload_matcher(w);
+    for (auto _ : state) {
+        size_t any = 0;
+        for (const auto& s : w.inputs) any += m.matches_any(s) ? 1 : 0;
+        benchmark::DoNotOptimize(any);
+    }
+    label_workload(state, w);
+}
+
+static void BM_Workload_Simulation(benchmark::State& state) {
+    const Workload w = workload_for(state);
+    matcher::TableLimits off;
+    off.max_states = 0;
+    const auto m = build_workload_matcher(w, off);
+    for (auto _ : state) {
+        size_t count = 0;
+        for (const auto& s : w.inputs) m.for_each_match(s, [&count](int) { ++count; });
+        benchmark::DoNotOptimize(count);
+    }
+    label_workload(state, w);
+}
+
+static void BM_Workload_StdRegex(benchmark::State& state) {
+    const Workload w = workload_for(state);
+    std::vector<std::regex> regexes;
+    for (const auto& p : w.patterns) regexes.emplace_back(p);
+    for (auto _ : state) {
+        size_t count = 0;
+        for (const auto& s : w.inputs) {
+            for (const auto& r : regexes) count += std::regex_match(s, r) ? 1 : 0;
+        }
+        benchmark::DoNotOptimize(count);
+    }
+    label_workload(state, w);
+}
+
+// Arguments: {0 = routes (resources), 1 = words (count)}
+#define WORKLOAD_ARGS ->Args({0, 3})->Args({0, 21})->Args({0, 85})->Args({0, 341})->Args({1, 16})->Args({1, 256})->Args({1, 4096})
+BENCHMARK(BM_Workload_Match) WORKLOAD_ARGS;
+BENCHMARK(BM_Workload_ForEachMatch) WORKLOAD_ARGS;
+BENCHMARK(BM_Workload_MatchInto) WORKLOAD_ARGS;
+BENCHMARK(BM_Workload_MatchesAny) WORKLOAD_ARGS;
+BENCHMARK(BM_Workload_Simulation) WORKLOAD_ARGS;
+BENCHMARK(BM_Workload_StdRegex) WORKLOAD_ARGS;
+#undef WORKLOAD_ARGS
+
 BENCHMARK_MAIN();

@@ -10,7 +10,7 @@ endif()
 include(GoogleTest)
 
 # The regex engine's tests
-add_executable(tests main.cpp)
+add_executable(tests main.cpp differential.cpp concurrency.cpp table.cpp)
 target_include_directories(
    tests
    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include

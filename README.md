@@ -53,16 +53,95 @@ make
 You can construct a matcher and feed it multiple regexes like so:
 
 ```cpp
-#include "regex_matcher.h"
+#include <matcher/core.hpp>
 
-RegexMatcher matcher;
-matcher.add_pattern("^a(bc)*d$");
-matcher.add_pattern("^123[0-9]+abc$");
+#include <iostream>
+#include <string>
 
-if (matcher.match("123456abc")) {
-    std::cout << "Match found!" << std::endl;
+matcher::RegexMatcher<int, char> matcher;  // the int is the id given to each pattern
+matcher.add_regex(std::string("a(bc)*d"), 0);
+matcher.add_regex(std::string("123[0-9]+abc"), 1);
+
+for (int id : matcher.match(std::string("123456abc"))) {
+    std::cout << "Pattern " << id << " matches\n";
 }
 ```
+
+A pattern always has to match the whole text, so it takes no `^` or `$`.
+
+Supported syntax: literal characters, `.` (any character but a line terminator, as in
+ECMAScript), sets `[abc]` and ranges `[a-z]`, groups `( )`, alternation `|`, the repeats `*`, `+`,
+`?`, `{n}`, `{n,}` and `{n,m}`, a `?` after a repeat (lazy, as in ECMAScript), and `\` before a
+punctuation character. A malformed pattern, or one that uses anything else (`^`, `$`, `[^...]`,
+`[]`, `\d`, `\w`, `\s` and other escapes of letters or digits, a repeat right after a repeat such
+as `a**`), makes `add_regex` throw `std::invalid_argument` and leaves the matcher unchanged.
+
+How it works: each pattern becomes an automaton with empty moves. A count such as `{2,4}` is
+written out as copies of the repeated part, so the automaton has no counters. A pattern whose counts
+write out more than 65536 states is rejected with `std::invalid_argument`, for example
+`(a{1000}){1000}`. Patterns share the states of identical leading items: `/users/[0-9]+` and
+`/users/[0-9]+/posts` share all of `/users/[0-9]+`. Nothing else is shared, so sharing never changes
+what a pattern matches. A pattern with groups and several top level alternatives shares nothing.
+
+Lookup table: for `char` (any 8 bit `char_t`), `match` and the other lookups below do not walk the
+automaton. On the first lookup after a change the matcher builds a deterministic table from it by
+subset construction: the 256 byte values are grouped into classes that every pattern treats alike,
+and each table state lists the ids it accepts. A lookup is then one table load per byte, and it
+stops early when no pattern can match any more. `compile()` builds the table ahead, so the first
+lookup is not slow. `add_regex` and `set_table_limits` drop the table; the next lookup builds a new
+one.
+
+Caps and fallback: `set_table_limits(TableLimits)` caps the table at `max_states` states (default
+65536, the dead state included) and `max_bytes` bytes (default 32 MiB, the build included). The full
+build also stops when its work passes a bound proportional to the size of the automaton, so a set
+of patterns whose table explodes, such as `(a|b)*a(a|b){12}` with many others, stops early. The
+matcher then fills a lazy table during lookups, one state at a time, under the same caps. A lookup
+that would pass them simulates the automaton instead. `build_ahead = false` skips the full build;
+`max_states = 0` turns the table off. Every mode gives the same answers. `table_stats()` tells which
+mode a matcher uses, its size, why the full build stopped, and how many lookups were simulated.
+A `char_t` wider than 8 bits has no table: its lookups simulate the automaton.
+
+Simulation: it steps the set of live states one character at a time and never backtracks. Its time
+is bounded by the length of the text times the size of the automaton. It reuses scratch buffers kept
+by the matcher, so a call does not allocate once they are as large as the automaton needs.
+
+Lookups: `match(text)` returns a `std::vector` of the matching ids; it allocates only when something
+matches. Three forms allocate nothing when the full table is in use:
+
+```cpp
+size_t n = matcher.for_each_match(text, [](int id) { /* ... */ });  // return false to stop early
+std::vector<int> ids;                       // reused from call to call
+matcher.match_into(text, ids);              // replaces the contents of ids
+bool any = matcher.matches_any(text);
+```
+
+Each gives exactly the ids of `match`, in the same order. The text is any range with `std::cbegin`
+and `std::cend`, such as `std::string` or `std::string_view`, passed by reference; a C array is
+refused at compile time, because its final `'\0'` would be matched.
+
+Answers: `match` agrees with `std::regex_match` (ECMAScript) on the syntax above. The tests check
+this on random patterns, alone and many in one matcher. `match` and `match_with_groups` return each
+matching id once, in ascending order. The tests also check every table mode and every lookup form
+against `std::regex_match`.
+
+Captures: `match_with_groups` follows ECMAScript: the match a backtracking engine finds first, a
+new pass of a repeat forgets the captures of the last pass, and an optional pass that consumes
+nothing does not count. The two `std::regex` libraries the tests ran against differ from this, and
+from each other, in cases the tests found where a repeated group can match the empty string: libstdc++
+keeps captures of earlier passes and counts empty passes; the Microsoft library can stop a greedy
+loop after an empty pass. Group ids start at 0.
+
+Captures stay on the simulation. When the full table shows that no pattern matches,
+`match_with_groups` returns at once.
+
+Threads: every lookup (`match`, `for_each_match`, `match_into`, `matches_any`,
+`match_with_groups`), `compile` and `table_stats` may run on one matcher from several threads at the
+same time. `add_regex` and `set_table_limits` must not run while another thread uses the matcher.
+The table is built once, under a mutex, by whichever lookup comes first; after that a lookup pays one
+atomic load and one branch to find it. A lazy table is read and filled under its own mutex, so
+lookups on it do not run in parallel. A copy of a matcher builds its own table; a move takes the
+table along. Matching uses no recursion, so a long text does not overflow the native stack. Its
+memory grows with the size of the automaton, not with the length of the text.
 
 ## Route Matcher
 
@@ -107,7 +186,20 @@ built while compiling need a larger constant-evaluation budget than compilers al
 
 ## Benchmarks and Performance
 
-RegexMatcher achieves competitive throughput compared to existing open-source libraries, especially in workloads with many patterns and strict matching requirements. Benchmarking against traditional engines (e.g., PCRE, std::regex) demonstrates its superior performance in multi-pattern deterministic scenarios.
+The task measured: for each input, find which of N patterns match it in full. It was measured
+against two classes of engine: multi-pattern engines that compile all patterns into one matcher
+(RE2::Set, Hyperscan) and engines that try one compiled regex per pattern (PCRE2 with JIT, RE2,
+boost::regex, std::regex). The workloads were route sets, word lists, random patterns from the
+differential test, inputs that match nothing, and inputs of 256 and 4096 bytes. In this benchmark,
+on a development host, the callback form (`for_each_match`) took less time per input than
+Hyperscan and RE2::Set on the inputs of up to 256 bytes. On the 4096 byte inputs Hyperscan took
+less time, and RE2::Set took about the same. `match`, which returns a vector, pays for one
+allocation whenever something matches. Numbers depend on the host, the compiler and the standard
+library, so none are quoted here.
+
+`tests/benchmarks.cpp` (Google Benchmark, `-DREGEXMATCHER_BUILD_BENCHMARKS=ON`) runs the route and
+word workloads through every entry point, with the table off, and with `std::regex`, without
+external engines.
 
 > More detailed evaluation and formal analysis can be found in the [scientific paper](https://doi.org/10.1109/TELECOM63374.2024.10812214).
 

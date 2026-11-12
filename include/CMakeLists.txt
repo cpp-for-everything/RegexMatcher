@@ -4,7 +4,6 @@
 # The regex engine: matcher/*.hpp and matcher/impl/*.ipp, without the route matcher.
 file(GLOB LIB_HDRS
     "${CMAKE_CURRENT_SOURCE_DIR}/matcher/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/matcher/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/matcher/impl/*.ipp"
 )
 list(REMOVE_ITEM LIB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/matcher/route.hpp")
@@ -15,19 +14,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/matcher/route.hpp")
     list(APPEND ROUTE_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/matcher/route.hpp")
 endif()
 
-# Config header
+# Config header, generated into the build tree and part of the header set, so it is installed
+set(REGEXMATCHER_CONFIG_HEADER "${CMAKE_CURRENT_BINARY_DIR}/matcher/RegexMatcherConfig.h")
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/RegexMatcherConfig.h.in
-    ${CMAKE_CURRENT_SOURCE_DIR}/matcher/RegexMatcherConfig.h
+    ${REGEXMATCHER_CONFIG_HEADER}
 )
 
 # The regex engine, header-only (INTERFACE since all code is in headers/ipp files), C++17
 add_library(RegexMatcher INTERFACE)
 add_library(RegexMatcher::core ALIAS RegexMatcher)
-target_sources(RegexMatcher INTERFACE FILE_SET regex_matcher_headers TYPE HEADERS FILES ${LIB_HDRS})
+target_sources(RegexMatcher INTERFACE
+    FILE_SET regex_matcher_headers TYPE HEADERS
+    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}
+    FILES ${LIB_HDRS} ${REGEXMATCHER_CONFIG_HEADER})
 target_include_directories(
     RegexMatcher
     INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>
 )

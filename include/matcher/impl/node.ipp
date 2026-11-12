@@ -1,459 +1,189 @@
 /**
  * @file node.ipp
- * @brief Template implementation for Node class
+ * @brief Template implementation for RegexMatcher class: the matching engine
  * @note This file is included by core.hpp - do not include directly
  */
 
-#include <stack>
+#include <algorithm>
 
-namespace {
-	template <typename RegexData, typename T>
-	std::vector<RegexData> common_values(const std::vector<RegexData>& sorted, const std::map<RegexData, T>& paths) {
-		std::vector<RegexData> answer;
-		if (sorted.empty()) {
-			for (const auto [k, _] : paths) {
-				answer.push_back(k);
-			}
-			return answer;
+namespace matcher {
+
+	// Steps the set of live states one character at a time (a Pike machine). The live states are kept in
+	// priority order: the order in which a backtracking engine would try them. A state enters a step's
+	// list once, from the first (highest priority) path that reaches it, so each step does work bounded
+	// by the size of the automaton, and a long text cannot make the search explode or recurse. Only
+	// match_with_groups() on a pattern with Check states may visit an empty move state a few times in
+	// one step (see Seen below).
+	//
+	// The working memory is a scratch buffer lent from the matcher's pool (see detail::ScratchPool). It
+	// is resized to this automaton at the start of the call and keeps its capacity, so a call allocates
+	// only while the buffers grow.
+	template <typename RegexData, typename char_t>
+	template <bool WithGroups, typename ConstIterator, typename Sink>
+	void RegexMatcher<RegexData, char_t>::run(detail::RunScratch<RegexData>& scratch, ConstIterator begin,
+	                                          ConstIterator end, Sink&& sink) const {
+		using Kind = detail::State::Kind;
+		using Action = detail::RunAction;
+		using Item = detail::RunItem;
+		using Seen = detail::RunSeen;
+		const size_t width = WithGroups ? 2 * max_groups : 0;  // capture slots of one live state
+
+		std::vector<uint64_t>& mark = scratch.mark;
+		if (mark.size() < states.size()) {
+			mark.resize(states.size(), 0);
 		}
-		auto it = paths.cbegin();
-		size_t ind = 0;
-		while (ind < sorted.size() && it != paths.cend()) {
-			if (it->first == sorted[ind]) {
-				answer.push_back(it->first);
-				it++;
-				ind++;
-			} else if (it->first < sorted[ind]) {
-				it++;
-			} else {
-				ind++;
-			}
-		}
-		return answer;
-	}
+		std::vector<uint32_t>& current = scratch.current;
+		std::vector<uint32_t>& next = scratch.next;
+		current.clear();
+		next.clear();
+		std::vector<size_t>& current_slots = scratch.current_slots;  // `width` slots per entry of current
+		std::vector<size_t>& next_slots = scratch.next_slots;
+		current_slots.clear();
+		next_slots.clear();
+		std::vector<size_t>& work = scratch.work;  // the slots of the path being followed
+		work.assign(width, detail::unset);
+		std::vector<Item>& stack = scratch.stack;
+		stack.clear();
 
-	template <typename RegexData, typename char_t>
-	std::map<symbol<char_t>, std::string> Node<RegexData, char_t>::special_symbols = {
-	    {'+', "{1,}"}, {'*', "{0,}"}, {'?', "{0,1}"}};
-
-	template <typename RegexData, typename char_t>
-	bool Node<RegexData, char_t>::hasChild(symbol<char_t> ch) const {
-		return (this->neighbours.find(ch) != this->neighbours.end());
-	}
-
-	template <typename RegexData, typename char_t>
-	Node<RegexData, char_t>* Node<RegexData, char_t>::getChild(symbol<char_t> ch) {
-		return this->neighbours.find(ch)->second.to;
-	}
-
-	template <typename RegexData, typename char_t>
-	void Node<RegexData, char_t>::absorb(Node<RegexData, char_t>* with) {
-		if (with == nullptr) {
-			return;
+		// With Check states, a path that started a pass at this step may not leave it, while another path
+		// to the same state may. So for captures an empty move state is visited again in one step unless
+		// an earlier visit had a subset of its `open` bits and has followed all its moves, or had the same
+		// bits (a loop back to it that changed nothing). A later visit inside an earlier one that is not
+		// finished comes from a new pass of a loop, which a backtracking engine tries before the rest of
+		// the earlier visit, so it must not be dropped.
+		const bool masked = WithGroups && has_checks;
+		std::vector<std::vector<Seen>>& seen = scratch.seen;
+		if (masked && seen.size() < states.size()) {
+			seen.resize(states.size());
 		}
 
-		for (auto it = with->neighbours.begin(); it != with->neighbours.end();) {
-			if (!this->hasChild(it->first)) {
-				this->neighbours.insert(with->neighbours.extract(it));
-				if (with->neighbours.size() == 0) {
-					break;
-				} else {
-					it = with->neighbours.begin();
+		// Follows the empty moves from `from` and adds the states that consume a character or accept to
+		// `list`, in priority order, each with the captures of the path that reached it first.
+		const auto follow = [&](std::vector<uint32_t>& list, std::vector<size_t>& slots, uint32_t from,
+		                        size_t step, uint64_t stamp) {
+			stack.push_back({from, Action::visit, 0, 0, 0});
+			while (!stack.empty()) {
+				const Item item = stack.back();
+				stack.pop_back();
+				if (item.action == Action::restore) {
+					work[item.slot] = item.value;
+					continue;
 				}
-			} else if (it->second.to) {
-				auto& current_child = this->neighbours[it->first];
-				this->neighbours[it->first].paths.merge(it->second.paths);
-				Node* old_child = it->second.to;
-				it->second.to = nullptr;
-				with->neighbours.erase(it);
-				if (current_child.to != nullptr) {
-					this->getChild(current_child.to->current_symbol)->absorb(old_child);
+				if (item.action == Action::finish) {
+					seen[item.state][item.slot].finished = true;
+					continue;
 				}
-				if (with->neighbours.size() == 0) {
-					break;
-				} else {
-					it = with->neighbours.begin();
-				}
-			}
-		}
-
-		std::stack<Node<RegexData, char_t>*> st;
-		std::set<Node<RegexData, char_t>*> visited;
-		st.push(with);
-		while (!st.empty()) {
-			Node<RegexData, char_t>* top = st.top();
-			st.pop();
-			if (visited.find(top) != visited.end()) {
-				continue;
-			}
-			visited.insert(top);
-			for (auto& old_neighbours : top->neighbours) {
-				if (old_neighbours.second.to == with) {
-					old_neighbours.second.to = this;
-				} else {
-					st.push(old_neighbours.second.to);
-				}
-			}
-		}
-
-		// delete with;
-
-		// std::stack<std::pair<Node<RegexData, char_t>*, Node<RegexData, char_t>* const>> st;
-		// std::vector<Node<RegexData, char_t>* const> to_delete;
-		// st.push({this, with});
-		// while (!st.empty())
-		//{
-		//	auto el = st.top();
-		//	st.pop();
-		//	// reattach its children to the root and then connect it
-		//	for (const auto& incoming_neighbours : el.second->neighbours)
-		//	{
-		//		if (el.first->hasChild(incoming_neighbours.first))
-		//		{
-		//			auto it = el.first->neighbours.find(incoming_neighbours.first)->second;
-		//			st.push({it.to, incoming_neighbours.second.to});
-		//			to_delete.push_back(incoming_neighbours.second.to);
-		//			for (const auto& x : incoming_neighbours.second.paths)
-		//			{
-		//				it.paths.emplace(x);
-		//			}
-		//		}
-		//		else
-		//		{
-		//			el.first->neighbours.emplace(incoming_neighbours);
-		//		}
-		//	}
-		//	el.second->neighbours.clear();
-		// }
-		// for (auto x : to_delete)
-		//{
-		//	delete x;
-		// }
-	}
-
-	template <typename RegexData, typename char_t>
-	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex,
-	                                           std::vector<std::unique_ptr<Limits>>& limits_storage,
-	                                           std::optional<Limits*> limit) {
-		connect_with(child, regex, {}, limits_storage, limit);
-	}
-
-	template <typename RegexData, typename char_t>
-	void Node<RegexData, char_t>::connect_with(Node<RegexData, char_t>* child, RegexData regex,
-	                                           const std::vector<TagAction>& actions,
-	                                           std::vector<std::unique_ptr<Limits>>& limits_storage,
-	                                           std::optional<Limits*> limit) {
-		if (auto existing_child = neighbours.find(child->current_symbol); existing_child != neighbours.end()) {
-			if (auto it = existing_child->second.paths.find(regex); it != existing_child->second.paths.end()) {
-				if (!it->second.has_value() && limit == std::nullopt) {
-					limits_storage.push_back(std::make_unique<Limits>(1, 1));
-					auto new_limit_ptr = limits_storage.back().get();
-					it->second = new_limit_ptr;
-				} else if (it->second.has_value() && limit == std::nullopt) {
-					(it->second.value()->min)++;
-					if (it->second.value()->max.has_value()) {
-						(it->second.value()->max.value())++;
+				const detail::State& state = states[item.state];
+				const bool consuming = state.kind == Kind::Char || state.kind == Kind::Accept;
+				if (mark[item.state] != stamp) {
+					mark[item.state] = stamp;
+					if (masked) {
+						seen[item.state].clear();
 					}
-				}
-			} else if (this == child && limit == std::nullopt) {
-				limits_storage.push_back(std::make_unique<Limits>(1, 1));
-				auto new_limit_ptr = limits_storage.back().get();
-				neighbours[child->current_symbol].paths.emplace(regex, new_limit_ptr);
-			} else {
-				neighbours[child->current_symbol].paths.emplace(regex, limit);
-			}
-			// Append tag actions for this regex path
-			if (!actions.empty()) {
-				auto& existing_actions = neighbours[child->current_symbol].tag_actions[regex];
-				existing_actions.insert(existing_actions.end(), actions.begin(), actions.end());
-			}
-			return;
-		}
-		neighbours[child->current_symbol].paths.emplace(regex, limit);
-		neighbours[child->current_symbol].to = child;
-		// Store tag actions for this regex path
-		if (!actions.empty()) {
-			neighbours[child->current_symbol].tag_actions[regex] = actions;
-		}
-	}
-
-	template <typename RegexData, typename char_t>
-	template <typename ConstIterator>
-	std::vector<RegexData> Node<RegexData, char_t>::match(ConstIterator begin, ConstIterator end) const {
-		return match_helper(begin, end, {}, nullptr);
-	}
-
-	template <typename RegexData, typename char_t>
-	template <typename ConstIterator>
-	std::vector<RegexData> Node<RegexData, char_t>::match_helper(ConstIterator begin, ConstIterator end,
-	                                                             const std::vector<RegexData>& paths,
-	                                                             const Node* prev) const {
-		if (begin == end) {
-			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
-				std::vector<RegexData> answer;
-				std::vector<RegexData> potential_answer = common_values(paths, it->second.paths);
-				if (prev != nullptr) {
-					for (RegexData pathId : potential_answer) {
-						bool to_include = true;
-						if (const auto knot = prev->neighbours.find(this->current_symbol);
-						    knot != prev->neighbours.end()) {
-							if (const auto knot_path = it->second.paths.find(pathId);
-							    knot_path != it->second.paths.end()) {
-								if (knot_path->second.has_value()) {
-									to_include &= knot_path->second.value()->min == 0;
-								}
-							}
-						}
-						if (const auto knot = this->neighbours.find(this->current_symbol);
-						    knot != this->neighbours.end()) {
-							if (knot->second.paths.find(pathId) != knot->second.paths.end()) {
-								if (knot->second.paths.at(pathId).has_value()) {
-									to_include &= knot->second.paths.at(pathId).value()->min == 0;
-								}
-							}
-						}
-						if (to_include) {
-							answer.push_back(pathId);
-						}
-					}
-					return answer;
 				} else {
-					return potential_answer;
-				}
-			}
-			return {};
-		}
-		std::vector<RegexData> answer;
-		const symbol<char_t> current = symbol<char_t>(*begin);
-		for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
-			if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
-				size_t ind = 0;
-				std::vector<RegexData> new_paths;
-				new_paths.reserve(paths.size());
-				std::map<RegexData, std::optional<Limits>> current_paths;
-				for (const auto [pathId, limits_ptr] : it->second.paths) {
-					if (limits_ptr.has_value() && !limits_ptr.value()->is_allowed_to_repeat()) {
+					if (!masked || consuming) {
 						continue;
 					}
-					if (prev != nullptr) {
-						if (paths[ind] > pathId) {
-							continue;
-						}
-						while (ind < paths.size() && paths[ind] < pathId) {
-							ind++;
-						}
-						if (ind == paths.size()) {
-							break;
-						}
-					}
-					if (prev == nullptr || paths[ind] == pathId) {
-						new_paths.push_back(pathId);
-						if (!limits_ptr.has_value()) {
-							continue;
-						}
-						current_paths.emplace(pathId, *limits_ptr.value());
-						--(*limits_ptr.value());
-					}
-				}
-				if (!new_paths.empty()) {
-					if (to_test != symbol<char_t>::None) {
-						begin++;
-					}
-					for (auto match : it->second.to->match_helper(begin, end, new_paths, this)) {
-						answer.push_back(match);
-					}
-					if (to_test != symbol<char_t>::None) {
-						begin--;
-					}
-					for (const auto [pathId, old_limits] : current_paths) {
-						if (old_limits.has_value()) {
-							(*it->second.paths.at(pathId).value()) = old_limits.value();
-						}
-					}
-				}
-			}
-		}
-		return answer;
-	}
-
-	template <typename RegexData, typename char_t>
-	template <typename ConstIterator>
-	std::vector<matcher::MatchResult<RegexData>> Node<RegexData, char_t>::match_with_groups(ConstIterator begin,
-	                                                                                        ConstIterator end) const {
-		std::vector<matcher::MatchResult<RegexData>> results;
-		std::map<RegexData, CaptureSlots> capture_slots;
-		match_with_groups_helper(begin, end, 0, {}, nullptr, capture_slots, results);
-		return results;
-	}
-
-	template <typename RegexData, typename char_t>
-	template <typename ConstIterator>
-	void Node<RegexData, char_t>::match_with_groups_helper(
-	    ConstIterator begin, ConstIterator end, size_t position, const std::vector<RegexData>& paths, const Node* prev,
-	    std::map<RegexData, CaptureSlots>& capture_slots, std::vector<matcher::MatchResult<RegexData>>& results) const {
-		if (begin == end) {
-			// Check for end-of-regex marker
-			if (auto it = this->neighbours.find(symbol<char_t>::EOR); it != this->neighbours.end()) {
-				std::vector<RegexData> potential_answer = common_values(paths, it->second.paths);
-				for (RegexData pathId : potential_answer) {
-					bool to_include = true;
-					// Check limit constraints (same logic as match_helper)
-					if (prev != nullptr) {
-						if (const auto knot = prev->neighbours.find(this->current_symbol);
-						    knot != prev->neighbours.end()) {
-							if (const auto knot_path = it->second.paths.find(pathId);
-							    knot_path != it->second.paths.end()) {
-								if (knot_path->second.has_value()) {
-									to_include &= knot_path->second.value()->min == 0;
-								}
-							}
-						}
-						if (const auto knot = this->neighbours.find(this->current_symbol);
-						    knot != this->neighbours.end()) {
-							if (knot->second.paths.find(pathId) != knot->second.paths.end()) {
-								if (knot->second.paths.at(pathId).has_value()) {
-									to_include &= knot->second.paths.at(pathId).value()->min == 0;
-								}
-							}
-						}
-					}
-					if (to_include) {
-						// Process any tag actions on the EOR edge
-						if (auto actions_it = it->second.tag_actions.find(pathId);
-						    actions_it != it->second.tag_actions.end()) {
-							for (const auto& action : actions_it->second) {
-								if (action.is_open()) {
-									capture_slots[pathId].open_group(action.group_id, position);
-								} else {
-									capture_slots[pathId].close_group(action.group_id, position);
-								}
-							}
-						}
-						// Create result with captured groups using CaptureSlots::to_map()
-						results.emplace_back(pathId, capture_slots[pathId].to_map());
-					}
-				}
-			}
-			return;
-		}
-
-		const symbol<char_t> current = symbol<char_t>(*begin);
-		for (symbol<char_t> to_test : {current, symbol<char_t>::Any, symbol<char_t>::None}) {
-			if (auto it = this->neighbours.find(to_test); it != this->neighbours.end()) {
-				size_t ind = 0;
-				std::vector<RegexData> new_paths;
-				new_paths.reserve(paths.size());
-				std::map<RegexData, std::optional<Limits>> current_paths;
-
-				for (const auto& [pathId, limits_ptr] : it->second.paths) {
-					if (limits_ptr.has_value() && !limits_ptr.value()->is_allowed_to_repeat()) {
+					const auto& earlier = seen[item.state];
+					if (std::any_of(earlier.begin(), earlier.end(), [&item](const Seen& e) {
+						    return (e.open & ~item.open) == 0 && (e.finished || e.open == item.open);
+					    })) {
 						continue;
 					}
-					if (prev != nullptr) {
-						if (paths[ind] > pathId) {
-							continue;
-						}
-						while (ind < paths.size() && paths[ind] < pathId) {
-							ind++;
-						}
-						if (ind == paths.size()) {
-							break;
-						}
-					}
-					if (prev == nullptr || paths[ind] == pathId) {
-						new_paths.push_back(pathId);
-						if (!limits_ptr.has_value()) {
-							continue;
-						}
-						current_paths.emplace(pathId, *limits_ptr.value());
-						--(*limits_ptr.value());
-					}
 				}
-
-				if (!new_paths.empty()) {
-					// Track undo operations for efficient backtracking (avoid full map copy)
-					// Each entry: (pathId, group_id, is_open, prev_value)
-					std::vector<std::tuple<RegexData, size_t, bool, size_t>> undo_stack;
-
-					// Process tag actions for this edge transition
-					// Tag actions are executed BEFORE consuming the current character
-					for (RegexData pathId : new_paths) {
-						if (auto actions_it = it->second.tag_actions.find(pathId);
-						    actions_it != it->second.tag_actions.end()) {
-							for (const auto& action : actions_it->second) {
-								if (action.is_open()) {
-									size_t prev = capture_slots[pathId].open_group(action.group_id, position);
-									undo_stack.emplace_back(pathId, action.group_id, true, prev);
-								} else {
-									size_t prev = capture_slots[pathId].close_group(action.group_id, position);
-									undo_stack.emplace_back(pathId, action.group_id, false, prev);
-								}
+				if (masked && !consuming) {
+					seen[item.state].push_back({item.open, false});
+					stack.push_back({item.state, Action::finish, seen[item.state].size() - 1, 0, 0});
+				}
+				switch (state.kind) {
+					case Kind::Char:
+					case Kind::Accept:
+						list.push_back(item.state);
+						if constexpr (WithGroups) {
+							slots.insert(slots.end(), work.begin(), work.end());
+						}
+						break;
+					case Kind::Split:
+						for (auto out = state.out.rbegin(); out != state.out.rend(); ++out) {
+							stack.push_back({*out, Action::visit, 0, 0, item.open});
+						}
+						break;
+					case Kind::Open:
+					case Kind::Close:
+						if constexpr (WithGroups) {
+							const size_t slot = 2 * size_t(state.value) + (state.kind == Kind::Close ? 1 : 0);
+							stack.push_back({0, Action::restore, slot, work[slot], 0});
+							work[slot] = step;
+						}
+						stack.push_back({state.out[0], Action::visit, 0, 0, item.open});
+						break;
+					case Kind::Reset:
+						if constexpr (WithGroups) {
+							for (size_t slot = 2 * size_t(state.value); slot < 2 * size_t(state.value_end); slot++) {
+								stack.push_back({0, Action::restore, slot, work[slot], 0});
+								work[slot] = detail::unset;
 							}
 						}
-					}
-
-					size_t next_position = (to_test != symbol<char_t>::None) ? position + 1 : position;
-					ConstIterator next_begin = begin;
-					if (to_test != symbol<char_t>::None) {
-						next_begin++;
-					}
-
-					it->second.to->match_with_groups_helper(next_begin, end, next_position, new_paths, this,
-					                                        capture_slots, results);
-
-					// Undo capture slot changes (reverse order)
-					for (auto rit = undo_stack.rbegin(); rit != undo_stack.rend(); ++rit) {
-						const auto& [pathId, group_id, is_open, prev_value] = *rit;
-						if (is_open) {
-							capture_slots[pathId].undo_open(group_id, prev_value);
-						} else {
-							capture_slots[pathId].undo_close(group_id, prev_value);
+						stack.push_back({state.out[0], Action::visit, 0, 0, item.open});
+						break;
+					case Kind::Enter:
+						stack.push_back({state.out[0], Action::visit, 0, 0,
+						                 WithGroups ? item.open | (uint64_t(1) << state.value) : 0});
+						break;
+					case Kind::Check:
+						// ECMAScript: an optional pass that consumed nothing fails. Only captures can tell.
+						if (WithGroups && (item.open & (uint64_t(1) << state.value)) != 0) {
+							break;
 						}
-					}
-
-					// Restore limits
-					for (const auto& [pathId, old_limits] : current_paths) {
-						if (old_limits.has_value()) {
-							(*it->second.paths.at(pathId).value()) = old_limits.value();
-						}
-					}
+						stack.push_back({state.out[0], Action::visit, 0, 0, item.open});
+						break;
 				}
+			}
+		};
+
+		size_t step = 0;  // characters consumed so far
+		follow(current, current_slots, 0, step, ++scratch.stamp);
+		for (auto it = begin; it != end; ++it) {
+			if (current.empty()) {
+				return;
+			}
+			const char_t c = *it;
+			step++;
+			const uint64_t stamp = ++scratch.stamp;
+			next.clear();
+			next_slots.clear();
+			for (size_t i = 0; i < current.size(); i++) {
+				const detail::State& state = states[current[i]];
+				if (state.kind != Kind::Char || !classes[state.value].contains(c)) {
+					continue;
+				}
+				if constexpr (WithGroups) {
+					std::copy(current_slots.begin() + i * width, current_slots.begin() + (i + 1) * width, work.begin());
+				}
+				follow(next, next_slots, state.out[0], step, stamp);
+			}
+			current.swap(next);
+			current_slots.swap(next_slots);
+		}
+		for (size_t i = 0; i < current.size(); i++) {
+			const detail::State& state = states[current[i]];
+			if (state.kind == Kind::Accept) {
+				sink(accept_ids[state.value], WithGroups ? current_slots.data() + i * width : nullptr);
 			}
 		}
 	}
 
 #ifdef DEBUG
 	template <typename RegexData, typename char_t>
-	void Node<RegexData, char_t>::print_helper(size_t layer, std::set<const Node<RegexData, char_t>*>& traversed,
-	                                           std::map<const Node<RegexData, char_t>*, std::string>& nodes) const {
-		if (traversed.find(this) != traversed.end()) {
-			return;
-		}
-		const std::basic_string<char_t> layer_str = (std::basic_stringstream<char_t>() << layer).str() + "_";
-		const std::basic_string<char_t> next_layer = (std::basic_stringstream<char_t>() << (layer + 1)).str() + "_";
-		traversed.emplace(this);
-		nodes.emplace(this, layer_str + current_symbol.to_string());
-		for (auto child : neighbours) {
-			if (nodes.find(child.second.to) == nodes.end()) {
-				nodes.emplace(child.second.to, next_layer + child.second.to->current_symbol.to_string());
-			}
-			std::cout << nodes[this] << " " << nodes[child.second.to] << " ";
-			std::cout << child.second.paths.begin()->first << Limits::to_string(child.second.paths.begin()->second);
-			for (auto it = std::next(child.second.paths.begin()); it != child.second.paths.end(); it++) {
-				std::cout << "," << it->first << Limits::to_string(it->second);
+	void RegexMatcher<RegexData, char_t>::print() const {
+		static const char* const names[] = {"char", "split", "open", "close", "reset", "accept", "enter", "check"};
+		for (size_t s = 0; s < states.size(); s++) {
+			std::cout << s << " " << names[static_cast<size_t>(states[s].kind)] << " " << states[s].value << " ->";
+			for (const auto out : states[s].out) {
+				std::cout << " " << out;
 			}
 			std::cout << std::endl;
-			if (nodes.find(child.second.to) != nodes.end()) {
-				child.second.to->print_helper(layer + 1, traversed, nodes);
-			}
 		}
 	}
-
-	template <typename RegexData, typename char_t>
-	void Node<RegexData, char_t>::print() const {
-		std::set<const Node<RegexData, char_t>*> traversed;
-		std::map<const Node<RegexData, char_t>*, std::string> nodes;
-		print_helper(0, traversed, nodes);
-	}
 #endif
-}  // anonymous namespace
+}  // namespace matcher
