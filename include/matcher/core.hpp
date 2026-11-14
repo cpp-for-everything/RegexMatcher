@@ -113,6 +113,10 @@ namespace matcher {
  * table built from the automaton replaces that simulation (see impl/table.ipp).
  */
 namespace matcher::detail {
+	// Reads the automaton of a RegexMatcher for matcher::compile_regex_dfa (dynamic.hpp). Declared
+	// here only to be a friend; it changes nothing in RegexMatcher.
+	struct RegexAutomatonAccess;
+
 	/**
 	 * @brief The characters one step of the automaton accepts: '.', a single character or a set
 	 *
@@ -478,6 +482,8 @@ namespace matcher {
 		mutable detail::ScratchPool<RegexData> scratch_pool;
 
 		using IdIterator = typename std::vector<RegexData>::const_iterator;
+
+		friend struct detail::RegexAutomatonAccess;
 
 		template <typename ConstIterator>
 		struct Parser;
